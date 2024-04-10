@@ -66,6 +66,7 @@ int main(int argc, char *argv[])
         .maxSeekers = 2,
         .enableBatchRenderer = false,
     });
+    mgr.init();
 
     std::random_device rd;
     std::mt19937 rand_gen(rd());

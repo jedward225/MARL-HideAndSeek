@@ -203,6 +203,7 @@ void ** Manager::CUDAImpl::copyOutObservations(
     Manager &mgr)
 {
     // Observations
+    copyFromSim(strm, *buffers++, mgr.prepCounterTensor());
     copyFromSim(strm, *buffers++, mgr.agentTypeTensor());
     copyFromSim(strm, *buffers++, mgr.agentMaskTensor());
     copyFromSim(strm, *buffers++, mgr.agentDataTensor());
@@ -219,15 +220,9 @@ void ** Manager::CUDAImpl::copyOutObservations(
 void Manager::CUDAImpl::gpuStreamInit(
     cudaStream_t strm, void **buffers, Manager &mgr)
 {
-    HeapArray<WorldReset> resets_staging(cfg.numWorlds);
-    for (CountT i = 0; i < (CountT)cfg.numWorlds; i++) {
-        resets_staging[i].resetLevel = 1;
-    }
+    MWCudaLaunchGraph init_graph = mwGPU.buildLaunchGraph(TaskGraphID::Init);
 
-    cudaMemcpyAsync(resetsPointer, resets_staging.data(),
-               sizeof(WorldReset) * cfg.numWorlds,
-               cudaMemcpyHostToDevice, strm);
-    mwGPU.runAsync(stepGraph, strm);
+    mwGPU.runAsync(init_graph, strm);
     copyOutObservations(strm, buffers, mgr);
 
     REQ_CUDA(cudaStreamSynchronize(strm));
@@ -740,7 +735,7 @@ Tensor Manager::doneTensor() const
 {
     return impl_->exportStateTensor(
         ExportID::Done, TensorElementType::Int32,
-        {impl_->cfg.numWorlds, 1});
+        {impl_->cfg.numWorlds * impl_->maxAgentsPerWorld, 1});
 }
 
 madrona::py::Tensor Manager::prepCounterTensor() const
@@ -983,6 +978,7 @@ TrainInterface Manager::trainInterface() const
         },
         {
             .observations = {
+                { "prep_counter", prepCounterTensor().interface() },
                 { "agent_type", agentTypeTensor().interface() },
                 { "agent_mask", agentMaskTensor().interface() },
                 { "agent_data", agentDataTensor().interface() },
