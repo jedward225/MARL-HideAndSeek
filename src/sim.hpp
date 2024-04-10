@@ -58,6 +58,8 @@ enum class ExportID : uint32_t {
     Reward,
     Done,
     GlobalDebugPositions,
+    AgentPolicy,
+    EpisodeResult,
     NumExports,
 };
 
@@ -87,6 +89,14 @@ struct Config {
     int32_t maxSeekers;
     madrona::phys::ObjectManager *rigidBodyObjMgr;
     const madrona::render::RenderECSBridge *renderBridge;
+};
+
+struct AgentPolicy {
+    int32_t policyIdx;
+};
+
+struct EpisodeResult {
+    float score;
 };
 
 class Engine;
@@ -221,6 +231,7 @@ struct AgentInterface : public madrona::Archetype<
     Seed,
     Reward,
     Done,
+    AgentPolicy,
     madrona::render::RenderCamera
 > {};
 

@@ -45,11 +45,13 @@ void Sim::registerTypes(ECSRegistry &registry,
     registry.registerComponent<Seed>();
     registry.registerComponent<Reward>();
     registry.registerComponent<Done>();
+    registry.registerComponent<AgentPolicy>();
 
     registry.registerSingleton<WorldReset>();
     registry.registerSingleton<GlobalDebugPositions>();
     registry.registerSingleton<LoadCheckpoint>();
     registry.registerSingleton<Checkpoint>();
+    registry.registerSingleton<EpisodeResult>();
 
     registry.registerArchetype<DynamicObject>();
     registry.registerArchetype<AgentInterface>();
@@ -77,12 +79,16 @@ void Sim::registerTypes(ECSRegistry &registry,
         ExportID::BoxVisMasks);
     registry.exportColumn<AgentInterface, RampVisibilityMasks>(
         ExportID::RampVisMasks);
+    registry.exportColumn<AgentInterface, AgentPolicy>(
+        ExportID::AgentPolicy);
     registry.exportColumn<AgentInterface, Lidar>(ExportID::Lidar);
     registry.exportColumn<AgentInterface, Seed>(ExportID::Seed);
     registry.exportColumn<AgentInterface, Reward>(ExportID::Reward);
     registry.exportColumn<AgentInterface, Done>(ExportID::Done);
     registry.exportSingleton<GlobalDebugPositions>(
         ExportID::GlobalDebugPositions);
+    registry.exportSingleton<EpisodeResult>(
+        ExportID::EpisodeResult);
 }
 
 static void initEpisodeRNG(Engine &ctx)

@@ -109,6 +109,11 @@ struct Manager::CPUImpl : Manager::Impl {
 
     inline void init();
     inline void step();
+
+#ifdef MADRONA_CUDA_SUPPORT
+    inline void gpuStreamInit(cudaStream_t strm, void **buffers, Manager &mgr);
+    inline void gpuStreamStep(cudaStream_t strm, void **buffers, Manager &mgr);
+#endif
 };
 
 void Manager::CPUImpl::init()
@@ -122,12 +127,44 @@ void Manager::CPUImpl::step()
 }
 
 #ifdef MADRONA_CUDA_SUPPORT
+void Manager::CPUImpl::gpuStreamInit(cudaStream_t, void **, Manager &)
+{
+    assert(false);
+}
+
+void Manager::CPUImpl::gpuStreamStep(cudaStream_t, void **, Manager &)
+{
+    assert(false);
+}
+#endif
+
+#ifdef MADRONA_CUDA_SUPPORT
+
+static inline uint64_t numTensorBytes(const Tensor &t)
+{
+    uint64_t num_items = 1;
+    uint64_t num_dims = t.numDims();
+    for (uint64_t i = 0; i < num_dims; i++) {
+        num_items *= t.dims()[i];
+    }
+
+    return num_items * (uint64_t)t.numBytesPerItem();
+}
+
 struct Manager::CUDAImpl : Manager::Impl {
     MWCudaExecutor mwGPU;
     MWCudaLaunchGraph stepGraph;
 
     inline void init();
     inline void step();
+
+    inline void copyFromSim(cudaStream_t strm, void *dst, const Tensor &src);
+    inline void copyToSim(cudaStream_t strm, const Tensor &dst, void *src);
+    inline void ** copyOutObservations(
+        cudaStream_t strm, void **buffers, Manager &mgr);
+
+    inline void gpuStreamInit(cudaStream_t strm, void **buffers, Manager &mgr);
+    inline void gpuStreamStep(cudaStream_t strm, void **buffers, Manager &mgr);
 };
 
 void Manager::CUDAImpl::init()
@@ -140,6 +177,80 @@ void Manager::CUDAImpl::init()
 void Manager::CUDAImpl::step()
 {
     mwGPU.run(stepGraph);
+}
+
+void Manager::CUDAImpl::copyFromSim(
+    cudaStream_t strm, void *dst, const Tensor &src)
+{
+    uint64_t num_bytes = numTensorBytes(src);
+
+    REQ_CUDA(cudaMemcpyAsync(dst, src.devicePtr(), num_bytes,
+        cudaMemcpyDeviceToDevice, strm));
+}
+
+void Manager::CUDAImpl::copyToSim(
+    cudaStream_t strm, const Tensor &dst, void *src)
+{
+    uint64_t num_bytes = numTensorBytes(dst);
+
+    REQ_CUDA(cudaMemcpyAsync(dst.devicePtr(), src, num_bytes,
+        cudaMemcpyDeviceToDevice, strm));
+}
+
+void ** Manager::CUDAImpl::copyOutObservations(
+    cudaStream_t strm,
+    void **buffers,
+    Manager &mgr)
+{
+    // Observations
+    copyFromSim(strm, *buffers++, mgr.agentTypeTensor());
+    copyFromSim(strm, *buffers++, mgr.agentMaskTensor());
+    copyFromSim(strm, *buffers++, mgr.agentDataTensor());
+    copyFromSim(strm, *buffers++, mgr.lidarTensor());
+    copyFromSim(strm, *buffers++, mgr.boxDataTensor());
+    copyFromSim(strm, *buffers++, mgr.rampDataTensor());
+    copyFromSim(strm, *buffers++, mgr.visibleAgentsMaskTensor());
+    copyFromSim(strm, *buffers++, mgr.visibleBoxesMaskTensor());
+    copyFromSim(strm, *buffers++, mgr.visibleRampsMaskTensor());
+
+    return buffers;
+}
+
+void Manager::CUDAImpl::gpuStreamInit(
+    cudaStream_t strm, void **buffers, Manager &mgr)
+{
+    HeapArray<WorldReset> resets_staging(cfg.numWorlds);
+    for (CountT i = 0; i < (CountT)cfg.numWorlds; i++) {
+        resets_staging[i].resetLevel = 1;
+    }
+
+    cudaMemcpyAsync(resetsPointer, resets_staging.data(),
+               sizeof(WorldReset) * cfg.numWorlds,
+               cudaMemcpyHostToDevice, strm);
+    mwGPU.runAsync(stepGraph, strm);
+    copyOutObservations(strm, buffers, mgr);
+
+    REQ_CUDA(cudaStreamSynchronize(strm));
+}
+
+void Manager::CUDAImpl::gpuStreamStep(
+    cudaStream_t strm, void **buffers, Manager &mgr)
+{
+    copyToSim(strm, mgr.actionTensor(), *buffers++);
+    copyToSim(strm, mgr.resetTensor(), *buffers++);
+
+    if (cfg.numPBTPolicies > 0) {
+        copyToSim(strm, mgr.policyAssignmentsTensor(), *buffers++);
+        //copyToSim(strm, mgr.rewardHyperParamsTensor(), *buffers++);
+    }
+
+    mwGPU.runAsync(stepGraph, strm);
+
+    buffers = copyOutObservations(strm, buffers, mgr);
+
+    copyFromSim(strm, *buffers++, mgr.rewardTensor());
+    copyFromSim(strm, *buffers++, mgr.doneTensor());
+    copyFromSim(strm, *buffers++, mgr.episodeResultTensor());
 }
 #endif
 
@@ -579,6 +690,44 @@ void Manager::step()
     }
 }
 
+#ifdef MADRONA_CUDA_SUPPORT
+void Manager::gpuStreamInit(cudaStream_t strm, void **buffers)
+{
+    switch (impl_->cfg.execMode) {
+    case ExecMode::CUDA: {
+#ifdef MADRONA_CUDA_SUPPORT
+        static_cast<CUDAImpl *>(impl_)->gpuStreamInit(strm, buffers, *this);
+#endif
+    } break;
+    case ExecMode::CPU: {
+        static_cast<CPUImpl *>(impl_)->gpuStreamInit(strm, buffers, *this);
+    } break;
+    }
+
+    if (impl_->renderMgr.has_value()) {
+        assert(false);
+    }
+}
+
+void Manager::gpuStreamStep(cudaStream_t strm, void **buffers)
+{
+    switch (impl_->cfg.execMode) {
+    case ExecMode::CUDA: {
+#ifdef MADRONA_CUDA_SUPPORT
+        static_cast<CUDAImpl *>(impl_)->gpuStreamStep(strm, buffers, *this);
+#endif
+    } break;
+    case ExecMode::CPU: {
+        static_cast<CPUImpl *>(impl_)->gpuStreamStep(strm, buffers, *this);
+    } break;
+    }
+    
+    if (impl_->renderMgr.has_value()) {
+        assert(false);
+    }
+}
+
+#endif
 
 Tensor Manager::resetTensor() const
 {
@@ -797,6 +946,60 @@ void Manager::setAction(CountT agent_idx,
 render::RenderManager & Manager::getRenderManager()
 {
     return *impl_->renderMgr;
+}
+
+Tensor Manager::episodeResultTensor() const
+{
+    return impl_->exportStateTensor(ExportID::EpisodeResult,
+                                    TensorElementType::Float32,
+                                    {
+                                        impl_->cfg.numWorlds,
+                                        sizeof(EpisodeResult) / sizeof(float),
+                                    });
+}
+
+Tensor Manager::policyAssignmentsTensor() const
+{
+    return impl_->exportStateTensor(ExportID::AgentPolicy,
+                                    TensorElementType::Int32,
+                                    {
+                                        impl_->cfg.numWorlds,
+                                        sizeof(AgentPolicy) / sizeof(int32_t)
+                                    });
+}
+
+TrainInterface Manager::trainInterface() const
+{
+    auto pbt_inputs = std::to_array<NamedTensorInterface>({
+        { "policy_assignments", policyAssignmentsTensor().interface() },
+    });
+
+    return TrainInterface {
+        {
+            .actions = actionTensor().interface(),
+            .resets = resetTensor().interface(),
+            .pbt = impl_->cfg.numPBTPolicies > 0 ?
+                pbt_inputs : Span<const NamedTensorInterface>(nullptr, 0),
+        },
+        {
+            .observations = {
+                { "agent_type", agentTypeTensor().interface() },
+                { "agent_mask", agentMaskTensor().interface() },
+                { "agent_data", agentDataTensor().interface() },
+                { "agent_lidar", lidarTensor().interface() },
+                { "box_data", boxDataTensor().interface() },
+                { "ramp_data", rampDataTensor().interface() },
+                { "vis_agents_mask", visibleAgentsMaskTensor().interface() },
+                { "vis_boxes_mask", visibleBoxesMaskTensor().interface() },
+                { "vis_ramps_mask", visibleRampsMaskTensor().interface() },
+            },
+            .rewards = rewardTensor().interface(),
+            .dones = doneTensor().interface(),
+            .pbt = {
+                { "episode_results", episodeResultTensor().interface() },
+            },
+        },
+    };
 }
 
 }

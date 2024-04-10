@@ -37,6 +37,7 @@ NB_MODULE(gpu_hideseek, m) {
                             uint32_t max_hiders,
                             uint32_t min_seekers,
                             uint32_t max_seekers,
+                            uint32_t num_pbt_policies,
                             bool enable_batch_render,
                             int64_t batch_render_width,
                             int64_t batch_render_height) {
@@ -50,6 +51,7 @@ NB_MODULE(gpu_hideseek, m) {
                 .maxHiders = max_hiders,
                 .minSeekers = min_seekers,
                 .maxSeekers = max_seekers,
+                .numPBTPolicies = num_pbt_policies,
                 .enableBatchRenderer = enable_batch_render,
                 .batchRenderViewWidth = (uint32_t)batch_render_width,
                 .batchRenderViewHeight = (uint32_t)batch_render_height,
@@ -63,6 +65,7 @@ NB_MODULE(gpu_hideseek, m) {
            nb::arg("max_hiders"),
            nb::arg("min_seekers"),
            nb::arg("max_seekers"),
+           nb::arg("num_pbt_policies"),
            nb::arg("enable_batch_renderer") = false,
            nb::arg("batch_render_width") = 64,
            nb::arg("batch_render_height") = 64)
@@ -86,6 +89,17 @@ NB_MODULE(gpu_hideseek, m) {
         .def("rgb_tensor", &Manager::rgbTensor)
         .def("lidar_tensor", &Manager::lidarTensor)
         .def("seed_tensor", &Manager::seedTensor)
+        .def("jax", madrona::py::JAXInterface::buildEntry<
+                &Manager::trainInterface,
+                &Manager::init,
+                &Manager::step
+#ifdef MADRONA_CUDA_SUPPORT
+                ,
+                &Manager::gpuStreamInit,
+                &Manager::gpuStreamStep
+#endif
+             >())
+
     ;
 }
 

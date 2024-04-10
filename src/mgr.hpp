@@ -23,6 +23,7 @@ public:
         uint32_t maxHiders;
         uint32_t minSeekers;
         uint32_t maxSeekers;
+        uint32_t numPBTPolicies;
         bool enableBatchRenderer;
         uint32_t batchRenderViewWidth = 64;
         uint32_t batchRenderViewHeight = 64;
@@ -35,6 +36,11 @@ public:
 
     void init();
     void step();
+
+#ifdef MADRONA_CUDA_SUPPORT
+    void gpuStreamInit(cudaStream_t strm, void **buffers);
+    void gpuStreamStep(cudaStream_t strm, void **buffers);
+#endif
 
     madrona::py::Tensor resetTensor() const;
     madrona::py::Tensor doneTensor() const;
@@ -63,6 +69,10 @@ public:
                    bool g, bool l);
 
     madrona::render::RenderManager & getRenderManager();
+
+    madrona::py::Tensor policyAssignmentsTensor() const;
+    madrona::py::Tensor episodeResultTensor() const;
+    madrona::py::TrainInterface trainInterface() const;
 
 private:
     struct Impl;
