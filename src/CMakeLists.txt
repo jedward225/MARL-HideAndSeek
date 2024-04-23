@@ -46,9 +46,11 @@ if (TARGET madrona_mw_gpu)
             ${SIMULATOR_SRCS}
     )
 
-    target_link_libraries(gpu_hideseek_mgr PRIVATE
-        gpu_hideseek_gpu_srcs
-        madrona_mw_gpu
+    target_link_libraries(gpu_hideseek_mgr 
+        PUBLIC
+            madrona_mw_gpu
+        PRIVATE
+            gpu_hideseek_gpu_srcs
     )
 endif ()
 
