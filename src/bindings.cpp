@@ -93,7 +93,7 @@ NB_MODULE(gpu_hideseek, m) {
                 &Manager::trainInterface,
                 &Manager::init,
                 &Manager::step
-#ifdef MADRONA_CUDA_SUPPORT
+#ifdef MADRONA_MWGPU_SUPPORT
                 ,
                 &Manager::gpuStreamInit,
                 &Manager::gpuStreamStep

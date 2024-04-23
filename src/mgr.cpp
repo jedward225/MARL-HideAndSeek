@@ -15,7 +15,7 @@
 #include <fstream>
 #include <string>
 
-#ifdef MADRONA_CUDA_SUPPORT
+#ifdef MADRONA_MWGPU_SUPPORT
 #include <madrona/mw_gpu.hpp>
 #include <madrona/cuda_utils.hpp>
 #endif
@@ -110,7 +110,7 @@ struct Manager::CPUImpl : Manager::Impl {
     inline void init();
     inline void step();
 
-#ifdef MADRONA_CUDA_SUPPORT
+#ifdef MADRONA_MWGPU_SUPPORT
     inline void gpuStreamInit(cudaStream_t strm, void **buffers, Manager &mgr);
     inline void gpuStreamStep(cudaStream_t strm, void **buffers, Manager &mgr);
 #endif
@@ -126,7 +126,7 @@ void Manager::CPUImpl::step()
     cpuExec.runTaskGraph(TaskGraphID::Step);
 }
 
-#ifdef MADRONA_CUDA_SUPPORT
+#ifdef MADRONA_MWGPU_SUPPORT
 void Manager::CPUImpl::gpuStreamInit(cudaStream_t, void **, Manager &)
 {
     assert(false);
@@ -138,7 +138,7 @@ void Manager::CPUImpl::gpuStreamStep(cudaStream_t, void **, Manager &)
 }
 #endif
 
-#ifdef MADRONA_CUDA_SUPPORT
+#ifdef MADRONA_MWGPU_SUPPORT
 
 static inline uint64_t numTensorBytes(const Tensor &t)
 {
@@ -478,7 +478,7 @@ Manager::Impl * Manager::Impl::make(const Config &cfg)
 
     switch (cfg.execMode) {
     case ExecMode::CUDA: {
-#ifdef MADRONA_CUDA_SUPPORT
+#ifdef MADRONA_MWGPU_SUPPORT
         CUcontext cu_ctx = MWCudaExecutor::initCUDA(cfg.gpuID);
 
         PhysicsLoader phys_loader(cfg.execMode, 10);
@@ -612,7 +612,7 @@ Tensor Manager::Impl::exportStateTensor(EnumT slot,
     void *dev_ptr = nullptr;
     Optional<int> gpu_id = Optional<int>::none();
     if (cfg.execMode == ExecMode::CUDA) {
-#ifdef MADRONA_CUDA_SUPPORT
+#ifdef MADRONA_MWGPU_SUPPORT
         dev_ptr =
             static_cast<CUDAImpl *>(this)->mwGPU.getExported((uint32_t)slot);
         gpu_id = cfg.gpuID;
@@ -631,7 +631,7 @@ Manager::Manager(const Config &cfg)
 Manager::~Manager() {
     switch (impl_->cfg.execMode) {
     case ExecMode::CUDA: {
-#ifdef MADRONA_CUDA_SUPPORT
+#ifdef MADRONA_MWGPU_SUPPORT
         delete static_cast<CUDAImpl *>(impl_);
 #endif
     } break;
@@ -645,7 +645,7 @@ void Manager::init()
 {
     switch (impl_->cfg.execMode) {
     case ExecMode::CUDA: {
-#ifdef MADRONA_CUDA_SUPPORT
+#ifdef MADRONA_MWGPU_SUPPORT
         static_cast<CUDAImpl *>(impl_)->init();
 #endif
     } break;
@@ -667,7 +667,7 @@ void Manager::step()
 {
     switch (impl_->cfg.execMode) {
     case ExecMode::CUDA: {
-#ifdef MADRONA_CUDA_SUPPORT
+#ifdef MADRONA_MWGPU_SUPPORT
         static_cast<CUDAImpl *>(impl_)->step();
 #endif
     } break;
@@ -685,12 +685,12 @@ void Manager::step()
     }
 }
 
-#ifdef MADRONA_CUDA_SUPPORT
+#ifdef MADRONA_MWGPU_SUPPORT
 void Manager::gpuStreamInit(cudaStream_t strm, void **buffers)
 {
     switch (impl_->cfg.execMode) {
     case ExecMode::CUDA: {
-#ifdef MADRONA_CUDA_SUPPORT
+#ifdef MADRONA_MWGPU_SUPPORT
         static_cast<CUDAImpl *>(impl_)->gpuStreamInit(strm, buffers, *this);
 #endif
     } break;
@@ -708,7 +708,7 @@ void Manager::gpuStreamStep(cudaStream_t strm, void **buffers)
 {
     switch (impl_->cfg.execMode) {
     case ExecMode::CUDA: {
-#ifdef MADRONA_CUDA_SUPPORT
+#ifdef MADRONA_MWGPU_SUPPORT
         static_cast<CUDAImpl *>(impl_)->gpuStreamStep(strm, buffers, *this);
 #endif
     } break;
@@ -905,7 +905,7 @@ void Manager::triggerReset(CountT world_idx, CountT level_idx)
     auto *reset_ptr = impl_->resetsPointer + world_idx;
 
     if (impl_->cfg.execMode == ExecMode::CUDA) {
-#ifdef MADRONA_CUDA_SUPPORT
+#ifdef MADRONA_MWGPU_SUPPORT
         cudaMemcpy(reset_ptr, &reset, sizeof(WorldReset),
                    cudaMemcpyHostToDevice);
 #endif
@@ -929,7 +929,7 @@ void Manager::setAction(CountT agent_idx,
     auto *action_ptr = impl_->actionsPointer + agent_idx;
 
     if (impl_->cfg.execMode == ExecMode::CUDA) {
-#ifdef MADRONA_CUDA_SUPPORT
+#ifdef MADRONA_MWGPU_SUPPORT
         cudaMemcpy(action_ptr, &action, sizeof(Action),
                    cudaMemcpyHostToDevice);
 #endif

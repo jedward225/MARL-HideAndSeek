@@ -37,7 +37,7 @@ public:
     void init();
     void step();
 
-#ifdef MADRONA_CUDA_SUPPORT
+#ifdef MADRONA_MWGPU_SUPPORT
     void gpuStreamInit(cudaStream_t strm, void **buffers);
     void gpuStreamStep(cudaStream_t strm, void **buffers);
 #endif
