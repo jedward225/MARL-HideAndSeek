@@ -51,6 +51,7 @@ arg_parser.add_argument('--fp16', action='store_true')
 arg_parser.add_argument('--bf16', action='store_true')
 
 arg_parser.add_argument('--pbt-ensemble-size', type=int, default=0)
+arg_parser.add_argument('--pbt-past-policies', type=int, default=0)
 
 arg_parser.add_argument('--gpu-sim', action='store_true')
 arg_parser.add_argument('--profile-port', type=int, default=None)
@@ -158,15 +159,15 @@ if args.pbt_ensemble_size != 0:
 
     pbt_cfg = PBTConfig(
         num_teams = 2,
-        team_size = args.num_hiders + args.num_seekers,
+        team_size = args.num_hiders,
         num_train_policies = args.pbt_ensemble_size,
-        num_past_policies = 0,
+        num_past_policies = args.pbt_past_policies,
         train_policy_cull_interval = 20,
-        past_policy_update_interval = 0,
         num_cull_policies = 1,
-        self_play_portion = 1.0,
-        cross_play_portion = 0.0,
-        past_play_portion = 0.0,
+        past_policy_update_interval = 5,
+        self_play_portion = 0.125,
+        cross_play_portion = 0.5,
+        past_play_portion = 0.375,
         reward_hyper_params_explore = {},
     )
 else:

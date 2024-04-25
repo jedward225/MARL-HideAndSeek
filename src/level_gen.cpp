@@ -9,7 +9,7 @@ using namespace madrona;
 using namespace madrona::math;
 using namespace madrona::phys;
 
-static Entity makeAgent(Engine &ctx, AgentType agent_type)
+static Entity makeAgent(Engine &ctx, Vector3 pos, Quat rot, AgentType agent_type)
 {
     Entity agent_iface =
         ctx.data().agentInterfaces[ctx.data().numActiveAgents++];
@@ -19,12 +19,6 @@ static Entity makeAgent(Engine &ctx, AgentType agent_type)
     ctx.get<SimEntity>(agent_iface).e = agent;
 
     ctx.get<AgentActiveMask>(agent_iface).mask = 1.f;
-
-    if (agent_type == AgentType::Seeker) {
-        ctx.data().seekers[ctx.data().numSeekers++] = agent;
-    } else {
-        ctx.data().hiders[ctx.data().numHiders++] = agent;
-    }
 
     ctx.get<Seed>(agent_iface).key = ctx.data().curEpisodeRNDCounter;
 
@@ -36,6 +30,37 @@ static Entity makeAgent(Engine &ctx, AgentType agent_type)
         .g = 0,
         .l = 0,
     };
+
+    ctx.get<Position>(agent) = pos;
+    ctx.get<Rotation>(agent) = rot;
+    ctx.get<Scale>(agent) = Diag3x3 { 1, 1, 1 };
+
+    ObjectID obj_id;
+    if (agent_type == AgentType::Seeker) {
+        obj_id = { (uint32_t)SimObject::Seeker };
+
+        ctx.data().seekers[ctx.data().numSeekers++] = agent;
+    } else {
+        obj_id = { (uint32_t)SimObject::Hider };
+
+        ctx.data().hiders[ctx.data().numHiders++] = agent;
+    }
+
+    ctx.get<ObjectID>(agent) = obj_id;
+
+    ctx.get<phys::broadphase::LeafID>(agent) =
+        PhysicsSystem::registerEntity(ctx, agent, obj_id);
+
+    ctx.get<Velocity>(agent) = {
+        Vector3::zero(),
+        Vector3::zero(),
+    };
+
+    ctx.get<ResponseType>(agent) = ResponseType::Dynamic;
+    ctx.get<OwnerTeam>(agent) = OwnerTeam::Unownable;
+    ctx.get<ExternalForce>(agent) = Vector3::zero();
+    ctx.get<ExternalTorque>(agent) = Vector3::zero();
+    ctx.get<GrabData>(agent).constraintEntity = Entity::none();
 
     return agent;
 }
@@ -208,30 +233,6 @@ static void generateTrainingEnvironment(Engine &ctx,
     }
     ctx.data().numActiveRamps = num_ramps;
 
-    auto makeDynAgent = [&](Vector3 pos, Quat rot, AgentType agent_type) {
-        Entity agent = makeAgent(ctx, agent_type);
-        ctx.get<Position>(agent) = pos;
-        ctx.get<Rotation>(agent) = rot;
-        ctx.get<Scale>(agent) = Diag3x3 { 1, 1, 1 };
-        ObjectID agent_obj_id = ObjectID { (uint32_t)SimObject::Agent };
-        ctx.get<ObjectID>(agent) = agent_obj_id;
-        ctx.get<phys::broadphase::LeafID>(agent) =
-            PhysicsSystem::registerEntity(ctx, agent,
-                                                         agent_obj_id);
-
-        ctx.get<Velocity>(agent) = {
-            Vector3::zero(),
-            Vector3::zero(),
-        };
-        ctx.get<ResponseType>(agent) = ResponseType::Dynamic;
-        ctx.get<OwnerTeam>(agent) = OwnerTeam::Unownable;
-        ctx.get<ExternalForce>(agent) = Vector3::zero();
-        ctx.get<ExternalTorque>(agent) = Vector3::zero();
-        ctx.get<GrabData>(agent).constraintEntity = Entity::none();
-
-        return agent;
-    };
-
     for (CountT i = 0; i < num_hiders; i++) {
         CountT rejections = 0;
         while (true) {
@@ -244,10 +245,10 @@ static void generateTrainingEnvironment(Engine &ctx,
             const auto rot = Quat::angleAxis(rng.sampleUniform() * math::pi, {0, 0, 1});
             Diag3x3 scale = {1.0f, 1.0f, 1.0f};
 
-            AABB aabb = obj_mgr.rigidBodyAABBs[(uint32_t)SimObject::Agent];
+            AABB aabb = obj_mgr.rigidBodyAABBs[(uint32_t)SimObject::Hider];
             aabb = aabb.applyTRS(pos, rot, scale);
             if (checkOverlap(aabb) || rejections == max_rejections) {
-                makeDynAgent(pos, rot, AgentType::Hider);
+                makeAgent(ctx, pos, rot, AgentType::Hider);
                 break;
             }
 
@@ -267,11 +268,11 @@ static void generateTrainingEnvironment(Engine &ctx,
             const auto rot = Quat::angleAxis(rng.sampleUniform() * math::pi, {0, 0, 1});
             Diag3x3 scale = {1.0f, 1.0f, 1.0f};
 
-            AABB aabb = obj_mgr.rigidBodyAABBs[(uint32_t)SimObject::Agent];
+            AABB aabb = obj_mgr.rigidBodyAABBs[(uint32_t)SimObject::Seeker];
             aabb = aabb.applyTRS(pos, rot, scale);
 
             if (checkOverlap(aabb) || rejections == max_rejections) {
-                makeDynAgent(pos, rot, AgentType::Seeker);
+                makeAgent(ctx, pos, rot, AgentType::Seeker);
                 break;
             }
 
@@ -386,30 +387,7 @@ static void level5(Engine &ctx)
     all_entities[num_entities++] =
         makePlane(ctx, {0, 0, 0}, Quat::angleAxis(0, {1, 0, 0}));
 
-    auto makeDynAgent = [&](Vector3 pos, Quat rot, AgentType agent_type) {
-        Entity agent = makeAgent(ctx, agent_type);
-        ctx.get<Position>(agent) = pos;
-        ctx.get<Rotation>(agent) = rot;
-        ctx.get<Scale>(agent) = Diag3x3 { 1, 1, 1 };
-        ObjectID agent_obj_id = ObjectID { (uint32_t)SimObject::Agent };
-        ctx.get<ObjectID>(agent) = agent_obj_id;
-        ctx.get<phys::broadphase::LeafID>(agent) =
-            PhysicsSystem::registerEntity(ctx, agent, agent_obj_id);
-
-        ctx.get<Velocity>(agent) = {
-            Vector3::zero(),
-            Vector3::zero(),
-        };
-        ctx.get<ResponseType>(agent) = ResponseType::Dynamic;
-        ctx.get<OwnerTeam>(agent) = OwnerTeam::Unownable;
-        ctx.get<ExternalForce>(agent) = Vector3::zero();
-        ctx.get<ExternalTorque>(agent) = Vector3::zero();
-        ctx.get<GrabData>(agent).constraintEntity = Entity::none();
-
-        return agent;
-    };
-
-    makeDynAgent({0, 0, 1}, Quat { 1, 0, 0, 0 }, AgentType::Hider);
+    makeAgent(ctx, {0, 0, 1}, Quat { 1, 0, 0, 0 }, AgentType::Hider);
 }
 
 static void level6(Engine &ctx)
@@ -430,33 +408,10 @@ static void level6(Engine &ctx)
             ctx, {0, -5, 1}, Quat::angleAxis(0, {1, 0, 0}), SimObject::Cube,
             ResponseType::Dynamic, OwnerTeam::None, {1.f, 1.f, 1.f} );
 
-    auto makeDynAgent = [&](Vector3 pos, Quat rot, AgentType agent_type) {
-        Entity agent = makeAgent(ctx, agent_type);
-        ctx.get<Position>(agent) = pos;
-        ctx.get<Rotation>(agent) = rot;
-        ctx.get<Scale>(agent) = Diag3x3 { 1, 1, 1 };
-        ObjectID agent_obj_id = ObjectID { (uint32_t)SimObject::Agent };
-        ctx.get<ObjectID>(agent) = agent_obj_id;
-        ctx.get<phys::broadphase::LeafID>(agent) =
-            PhysicsSystem::registerEntity(ctx, agent, agent_obj_id);
-
-        ctx.get<Velocity>(agent) = {
-            Vector3::zero(),
-            Vector3::zero(),
-        };
-        ctx.get<ResponseType>(agent) = ResponseType::Dynamic;
-        ctx.get<OwnerTeam>(agent) = OwnerTeam::Unownable;
-        ctx.get<ExternalForce>(agent) = Vector3::zero();
-        ctx.get<ExternalTorque>(agent) = Vector3::zero();
-        ctx.get<GrabData>(agent).constraintEntity = Entity::none();
-
-        return agent;
-    };
-
-    makeDynAgent({ -15, -15, 1.5 },
+    makeAgent(ctx, { -15, -15, 1.5 },
         Quat::angleAxis(toRadians(-45), {0, 0, 1}), AgentType::Hider);
 
-    makeDynAgent({ -15, -10, 1.5 },
+    makeAgent(ctx, { -15, -10, 1.5 },
         Quat::angleAxis(toRadians(45), {0, 0, 1}), AgentType::Seeker);
 
     ctx.data().numObstacles = num_entities;

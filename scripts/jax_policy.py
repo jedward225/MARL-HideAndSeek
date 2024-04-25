@@ -219,7 +219,7 @@ def make_policy(dtype):
     )
 
     def get_episode_scores(episode_result):
-        return episode_result[0]
+        return episode_result
 
     return Policy(
         actor_critic = actor_critic,

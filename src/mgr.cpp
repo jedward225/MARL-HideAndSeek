@@ -260,6 +260,7 @@ static void loadPhysicsObjects(PhysicsLoader &loader)
 
     SourceCollisionPrimitive plane_prim {
         .type = CollisionPrimitive::Type::Plane,
+        .plane = {},
     };
 
     char import_err_buffer[4096];
@@ -279,10 +280,10 @@ static void loadPhysicsObjects(PhysicsLoader &loader)
         imported_hulls->objects.size());
 
     DynArray<DynArray<SourceCollisionPrimitive>> prim_arrays(0);
-    HeapArray<SourceCollisionObject> src_objs(imported_hulls->objects.size() + 2);
+    HeapArray<SourceCollisionObject> src_objs((uint32_t)SimObject::NumObjects);
 
     // Sphere (0)
-    src_objs[0] = {
+    src_objs[(uint32_t)SimObject::Sphere] = {
         .prims = Span<const SourceCollisionPrimitive>(&sphere_prim, 1),
         .invMass = 1.f,
         .friction = {
@@ -292,7 +293,7 @@ static void loadPhysicsObjects(PhysicsLoader &loader)
     };
 
     // Plane (1)
-    src_objs[1] = {
+    src_objs[(uint32_t)SimObject::Plane] = {
         .prims = Span<const SourceCollisionPrimitive>(&plane_prim, 1),
         .invMass = 0.f,
         .friction = {
@@ -325,36 +326,43 @@ static void loadPhysicsObjects(PhysicsLoader &loader)
         };
     };
 
-    { // Cube (2)
-        src_objs[2] = setupHull(0, 0.5f, {
+    { // Cube
+        src_objs[(uint32_t)SimObject::Cube] = setupHull(0, 0.5f, {
             .muS = 0.5f,
             .muD = 2.f,
         });
     }
 
-    { // Wall (3)
-        src_objs[3] = setupHull(1, 0.f, {
+    { // Wall
+        src_objs[(uint32_t)SimObject::Wall] = setupHull(1, 0.f, {
             .muS = 0.5f,
             .muD = 2.f,
         });
     }
 
-    { // Cylinder (4)
-        src_objs[4] = setupHull(2, 1.f, {
+    { // Cylinder
+        src_objs[(uint32_t)SimObject::Hider] = setupHull(2, 1.f, {
             .muS = 0.5f,
             .muD = 16.f,
         });
     }
 
-    { // Ramp (5)
-        src_objs[5] = setupHull(3, 0.5f, {
+    { // Cylinder
+        src_objs[(uint32_t)SimObject::Seeker] = setupHull(2, 1.f, {
+            .muS = 0.5f,
+            .muD = 16.f,
+        });
+    }
+
+    { // Ramp
+        src_objs[(uint32_t)SimObject::Ramp] = setupHull(3, 0.5f, {
             .muS = 0.5f,
             .muD = 1.f,
         });
     }
 
-    { // Elongated Box (6)
-        src_objs[6] = setupHull(4, 0.5f, {
+    { // Elongated Box
+        src_objs[(uint32_t)SimObject::Box] = setupHull(4, 0.5f, {
             .muS = 0.5f,
             .muD = 4.f,
         });
@@ -376,8 +384,14 @@ static void loadPhysicsObjects(PhysicsLoader &loader)
     }
 
     // HACK:
-    rigid_body_assets.metadatas[4].mass.invInertiaTensor.x = 0.f,
-    rigid_body_assets.metadatas[4].mass.invInertiaTensor.y = 0.f,
+    rigid_body_assets.metadatas[
+        (uint32_t)SimObject::Hider].mass.invInertiaTensor.x = 0.f;
+    rigid_body_assets.metadatas[
+        (uint32_t)SimObject::Hider].mass.invInertiaTensor.y = 0.f;
+    rigid_body_assets.metadatas[
+        (uint32_t)SimObject::Seeker].mass.invInertiaTensor.x = 0.f;
+    rigid_body_assets.metadatas[
+        (uint32_t)SimObject::Seeker].mass.invInertiaTensor.y = 0.f;
 
     loader.loadRigidBodies(rigid_body_assets);
     free(rigid_body_data);
@@ -394,7 +408,9 @@ static void loadRenderObjects(render::RenderManager &render_mgr)
         (std::filesystem::path(DATA_DIR) / "cube_render.obj").string();
     render_asset_paths[(size_t)SimObject::Wall] =
         (std::filesystem::path(DATA_DIR) / "wall_render.obj").string();
-    render_asset_paths[(size_t)SimObject::Agent] =
+    render_asset_paths[(size_t)SimObject::Hider] =
+        (std::filesystem::path(DATA_DIR) / "agent_render.obj").string();
+    render_asset_paths[(size_t)SimObject::Seeker] =
         (std::filesystem::path(DATA_DIR) / "agent_render.obj").string();
     render_asset_paths[(size_t)SimObject::Ramp] =
         (std::filesystem::path(DATA_DIR) / "ramp_render.obj").string();
@@ -417,23 +433,27 @@ static void loadRenderObjects(render::RenderManager &render_mgr)
     auto materials = std::to_array<imp::SourceMaterial>({
         { math::Vector4{0.4f, 0.4f, 0.4f, 0.0f}, -1, 0.8f, 0.2f,},
         { math::Vector4{1.0f, 0.1f, 0.1f, 0.0f}, -1, 0.8f, 0.2f,},
-        { math::Vector4{0.1f, 0.1f, 1.0f, 0.0f}, 1, 0.8f, 1.0f,},
+        { math::Vector4{1.0f, 1.0f, 1.0f, 0.0f}, 1, 0.8f, 1.0f,},
         { math::Vector4{0.5f, 0.3f, 0.3f, 0.0f},  0, 0.8f, 0.2f,},
         { render::rgb8ToFloat(191, 108, 10), -1, 0.8f, 0.2f },
         { render::rgb8ToFloat(12, 144, 150), -1, 0.8f, 0.2f },
         { render::rgb8ToFloat(230, 230, 230),   -1, 0.8f, 1.0f },
+        { math::Vector4{1.0f, 1.0f, 1.0f, 0.0f}, 2, 0.8f, 1.0f,},
     });
 
     // Override materials
-    render_assets->objects[0].meshes[0].materialIDX = 0;
-    render_assets->objects[1].meshes[0].materialIDX = 3;
-    render_assets->objects[2].meshes[0].materialIDX = 1;
-    render_assets->objects[3].meshes[0].materialIDX = 0;
-    render_assets->objects[4].meshes[0].materialIDX = 2;
-    render_assets->objects[4].meshes[1].materialIDX = 6;
-    render_assets->objects[4].meshes[2].materialIDX = 6;
-    render_assets->objects[5].meshes[0].materialIDX = 4;
-    render_assets->objects[6].meshes[0].materialIDX = 5;
+    render_assets->objects[(uint32_t)SimObject::Sphere].meshes[0].materialIDX = 0;
+    render_assets->objects[(uint32_t)SimObject::Plane].meshes[0].materialIDX = 3;
+    render_assets->objects[(uint32_t)SimObject::Cube].meshes[0].materialIDX = 1;
+    render_assets->objects[(uint32_t)SimObject::Wall].meshes[0].materialIDX = 0;
+    render_assets->objects[(uint32_t)SimObject::Hider].meshes[0].materialIDX = 2;
+    render_assets->objects[(uint32_t)SimObject::Hider].meshes[1].materialIDX = 6;
+    render_assets->objects[(uint32_t)SimObject::Hider].meshes[2].materialIDX = 6;
+    render_assets->objects[(uint32_t)SimObject::Seeker].meshes[0].materialIDX = 7;
+    render_assets->objects[(uint32_t)SimObject::Seeker].meshes[1].materialIDX = 6;
+    render_assets->objects[(uint32_t)SimObject::Seeker].meshes[2].materialIDX = 6;
+    render_assets->objects[(uint32_t)SimObject::Ramp].meshes[0].materialIDX = 4;
+    render_assets->objects[(uint32_t)SimObject::Box].meshes[0].materialIDX = 5;
 
     render_mgr.loadObjects(render_assets->objects, materials, {
         { (std::filesystem::path(DATA_DIR) /
@@ -441,7 +461,7 @@ static void loadRenderObjects(render::RenderManager &render_mgr)
         { (std::filesystem::path(DATA_DIR) /
            "smile.png").string().c_str() },
         { (std::filesystem::path(DATA_DIR) /
-           "smile.png").string().c_str() },
+           "red_smile.png").string().c_str() },
     });
 
     render_mgr.configureLighting({
@@ -451,21 +471,6 @@ static void loadRenderObjects(render::RenderManager &render_mgr)
 
 Manager::Impl * Manager::Impl::make(const Config &cfg)
 {
-    std::array<char, 1024> import_err;
-    auto render_assets = imp::ImportedAssets::importFromDisk({
-        (std::filesystem::path(DATA_DIR) / "sphere.obj").string().c_str(),
-        (std::filesystem::path(DATA_DIR) / "plane.obj").string().c_str(),
-        (std::filesystem::path(DATA_DIR) / "cube_render.obj").string().c_str(),
-        (std::filesystem::path(DATA_DIR) / "wall_render.obj").string().c_str(),
-        (std::filesystem::path(DATA_DIR) / "cylinder_render.obj").string().c_str(),
-        (std::filesystem::path(DATA_DIR) / "ramp_render.obj").string().c_str(),
-        (std::filesystem::path(DATA_DIR) / "elongated_render.obj").string().c_str(),
-    }, Span<char>(import_err.data(), import_err.size()));
-
-    if (!render_assets.has_value()) {
-        FATAL("Failed to load render assets: %s", import_err);
-    }
-
     GPUHideSeek::Config app_cfg;
     app_cfg.simFlags = cfg.simFlags;
     app_cfg.initRandKey = rand::initKey(cfg.randSeed);
@@ -955,12 +960,13 @@ Tensor Manager::episodeResultTensor() const
 
 Tensor Manager::policyAssignmentsTensor() const
 {
-    return impl_->exportStateTensor(ExportID::AgentPolicy,
-                                    TensorElementType::Int32,
-                                    {
-                                        impl_->cfg.numWorlds,
-                                        sizeof(AgentPolicy) / sizeof(int32_t)
-                                    });
+    return impl_->exportStateTensor(
+        ExportID::AgentPolicy,
+        TensorElementType::Int32,
+        {
+            impl_->cfg.numWorlds * impl_->maxAgentsPerWorld,
+            sizeof(AgentPolicy) / sizeof(int32_t)
+        });
 }
 
 TrainInterface Manager::trainInterface() const

@@ -74,7 +74,8 @@ enum class SimObject : uint32_t {
     Plane,
     Cube,
     Wall,
-    Agent,
+    Hider,
+    Seeker,
     Ramp,
     Box,
     NumObjects,
@@ -95,8 +96,13 @@ struct AgentPolicy {
     int32_t policyIdx;
 };
 
+struct EpisodeStats {
+    int32_t hiderScore;
+    int32_t seekerScore;
+};
+
 struct EpisodeResult {
-    float score;
+    float scores[2];
 };
 
 class Engine;

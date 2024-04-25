@@ -51,6 +51,7 @@ void Sim::registerTypes(ECSRegistry &registry,
     registry.registerSingleton<GlobalDebugPositions>();
     registry.registerSingleton<LoadCheckpoint>();
     registry.registerSingleton<Checkpoint>();
+    registry.registerSingleton<EpisodeStats>();
     registry.registerSingleton<EpisodeResult>();
 
     registry.registerArchetype<DynamicObject>();
@@ -706,6 +707,42 @@ inline void outputRewardsDonesSystem(Engine &ctx,
     reward.v = reward_val;
 }
 
+inline void updateEpisodeResultsSystem(Engine &ctx,
+                                       EpisodeResult &ep_result)
+{
+    auto &stats = ctx.singleton<EpisodeStats>();
+
+    CountT cur_step = ctx.data().curEpisodeStep;
+
+    if (cur_step == 0) {
+        ep_result.scores[0] = 0.f;
+        ep_result.scores[1] = 0.f;
+
+        stats.hiderScore = 0;
+        stats.seekerScore = 0;
+    }
+
+    // FIXME, don't rely on hiderTeamReward here.
+    if (ctx.data().hiderTeamReward.load_relaxed() == 1.f) {
+        stats.hiderScore += 1;
+    } else {
+        stats.seekerScore += 1;
+    }
+
+    if (cur_step == episodeLen - 1) {
+        if (stats.hiderScore > stats.seekerScore) {
+            ep_result.scores[0] = 1.f;
+            ep_result.scores[1] = 0.f;
+        } else if (stats.hiderScore < stats.seekerScore) {
+            ep_result.scores[0] = 0.f;
+            ep_result.scores[1] = 1.f;
+        } else {
+            ep_result.scores[0] = 0.5f;
+            ep_result.scores[1] = 0.5f;
+        }
+    }
+}
+
 inline void globalPositionsDebugSystem(Engine &ctx,
                                        GlobalDebugPositions &global_positions)
 {
@@ -821,7 +858,12 @@ static TaskGraphNodeID rewardsAndDonesTasks(TaskGraphBuilder &builder,
             Done
         >>({rewards_vis});
 
-    return output_rewards_dones;
+    auto update_episode_results = builder.addToGraph<ParallelForNode<Engine,
+        updateEpisodeResultsSystem,
+            EpisodeResult
+        >>({output_rewards_dones});
+
+    return update_episode_results;
 }
 
 static TaskGraphNodeID resetTasks(TaskGraphBuilder &builder,
