@@ -206,7 +206,7 @@ int main(int argc, char *argv[])
         return false;
     };
 
-    auto global_pos_printer = mgr.globalPositionsTensor().makePrinter();
+    auto self_data_printer = mgr.selfDataTensor().makePrinter();
     auto prep_count_printer = mgr.prepCounterTensor().makePrinter();
     auto vis_agents_printer = mgr.agentDataTensor().makePrinter();
     auto vis_agents_mask_printer = mgr.visibleAgentsMaskTensor().makePrinter();
@@ -218,8 +218,8 @@ int main(int argc, char *argv[])
             return;
         }
 
-        printf("Global Position\n");
-        global_pos_printer.print();
+        printf("Self Data\n");
+        self_data_printer.print();
         printf("Prep Counter\n");
         prep_count_printer.print();
         printf("Agents\n");

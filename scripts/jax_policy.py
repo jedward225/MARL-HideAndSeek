@@ -79,6 +79,23 @@ class PolicyRNN(nn.Module):
         return self.norm(
             self.rnn.sequence(start_hiddens, seq_ends, seq_x, train))
 
+def extract_self_obs(obs):
+    obs, prep_counter = obs.pop('prep_counter')
+    obs, self_data = obs.pop('self_data')
+    obs, self_type = obs.pop('self_type')
+    obs, self_mask = obs.pop('self_mask')
+    obs, agent_lidar = obs.pop('self_lidar')
+
+    self_ob = jnp.concatenate([
+        prep_counter,
+        self_data,
+        self_type,
+        self_mask,
+        agent_lidar,
+    ], axis=-1)
+
+    return obs, self_ob
+
 class PrefixCommon(nn.Module):
     dtype: jnp.dtype
 
@@ -89,37 +106,7 @@ class PrefixCommon(nn.Module):
         train,
     ):
         jax.tree_map(lambda x: assert_valid_input(x), obs)
-
-        obs, prep_counter = obs.pop('prep_counter')
-        obs, agent_type = obs.pop('agent_type')
-        obs, agent_mask = obs.pop('agent_mask')
-        obs, agent_data = obs.pop('agent_data')
-        obs, agent_lidar = obs.pop('agent_lidar')
-        obs, box_data = obs.pop('box_data')
-        obs, ramp_data = obs.pop('ramp_data')
-        obs, vis_agents_mask = obs.pop('vis_agents_mask')
-        obs, vis_boxes_mask = obs.pop('vis_boxes_mask')
-        obs, vis_ramps_mask = obs.pop('vis_ramps_mask')
-
-        self_ob = jnp.concatenate([
-            prep_counter,
-            agent_type,
-            agent_mask,
-            agent_lidar,
-        ], axis=-1)
-        
-        agent_data = agent_data * vis_agents_mask
-        box_data = box_data * vis_boxes_mask
-        ramp_data = ramp_data * vis_ramps_mask
-
-        assert len(obs) == 0
-
-        return FrozenDict({
-            'self': self_ob, 
-            'agents': agent_data, 
-            'boxes': box_data, 
-            'ramps': ramp_data, 
-        })
+        return obs
 
 
 class SimpleNet(nn.Module):
@@ -154,6 +141,28 @@ class ActorNet(nn.Module):
         obs,
         train,
     ):
+        obs, self_ob = extract_self_obs(obs)
+        
+        obs, agent_data = obs.pop('agent_data')
+        obs, box_data = obs.pop('box_data')
+        obs, ramp_data = obs.pop('ramp_data')
+        obs, vis_agents_mask = obs.pop('vis_agents_mask')
+        obs, vis_boxes_mask = obs.pop('vis_boxes_mask')
+        obs, vis_ramps_mask = obs.pop('vis_ramps_mask')
+
+        assert len(obs) == 0
+
+        agent_data = agent_data * vis_agents_mask
+        box_data = box_data * vis_boxes_mask
+        ramp_data = ramp_data * vis_ramps_mask
+
+        obs = FrozenDict({
+            'self': self_ob,
+            'agents': agent_data, 
+            'boxes': box_data, 
+            'ramps': ramp_data, 
+        })
+
         if self.use_simple:
             return SimpleNet(dtype=self.dtype)(obs, train)
         else:
@@ -175,6 +184,24 @@ class CriticNet(nn.Module):
         obs,
         train,
     ):
+        obs, self_ob = extract_self_obs(obs)
+        
+        obs, agent_data = obs.pop('agent_data')
+        obs, box_data = obs.pop('box_data')
+        obs, ramp_data = obs.pop('ramp_data')
+        obs, vis_agents_mask = obs.pop('vis_agents_mask')
+        obs, vis_boxes_mask = obs.pop('vis_boxes_mask')
+        obs, vis_ramps_mask = obs.pop('vis_ramps_mask')
+
+        assert len(obs) == 0
+
+        obs = FrozenDict({
+            'self': self_ob,
+            'agents': agent_data, 
+            'boxes': box_data, 
+            'ramps': ramp_data, 
+        })
+
         if self.use_simple:
             return SimpleNet(dtype=self.dtype)(obs, train)
         else:
@@ -186,7 +213,7 @@ class CriticNet(nn.Module):
                 )(obs, train=train)
 
 def make_policy(dtype):
-    encoder = RecurrentBackboneEncoder(
+    actor_encoder = RecurrentBackboneEncoder(
         net = ActorNet(dtype, use_simple=False),
         rnn = PolicyRNN.create(
             num_hidden_channels = 256,
@@ -195,11 +222,21 @@ def make_policy(dtype):
         ),
     )
 
-    backbone = BackboneShared(
+    critic_encoder = RecurrentBackboneEncoder(
+        net = CriticNet(dtype, use_simple=False),
+        rnn = PolicyRNN.create(
+            num_hidden_channels = 256,
+            num_layers = 1,
+            dtype = dtype,
+        ),
+    )
+
+    backbone = BackboneSeparate(
         prefix = PrefixCommon(
             dtype = dtype,
         ),
-        encoder = encoder,
+        actor_encoder = actor_encoder,
+        critic_encoder = critic_encoder,
     )
 
     actor_critic = ActorCritic(
@@ -214,8 +251,18 @@ def make_policy(dtype):
     obs_preprocess = ObservationsEMANormalizer.create(
         decay = 0.99999,
         dtype = dtype,
-        prep_fns = {},
-        skip_normalization = {},
+        prep_fns = {
+            'prep_counter': lambda x: (x.astype(jnp.float32) / 96).astype(dtype),
+            'self_type': lambda x: x.astype(dtype),
+        },
+        skip_normalization = {
+            'prep_counter',
+            'self_type',
+            'self_mask',
+            'vis_agents_mask',
+            'vis_boxes_mask',
+            'vis_ramps_mask',
+        },
     )
 
     def get_episode_scores(episode_result):

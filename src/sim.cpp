@@ -35,6 +35,7 @@ void Sim::registerTypes(ECSRegistry &registry,
     registry.registerComponent<SimEntity>();
 
     registry.registerComponent<AgentActiveMask>();
+    registry.registerComponent<SelfObservation>();
     registry.registerComponent<RelativeAgentObservations>();
     registry.registerComponent<RelativeBoxObservations>();
     registry.registerComponent<RelativeRampObservations>();
@@ -65,10 +66,12 @@ void Sim::registerTypes(ECSRegistry &registry,
         ExportID::PrepCounter);
     registry.exportColumn<AgentInterface, Action>(
         ExportID::Action);
+    registry.exportColumn<AgentInterface, SelfObservation>(
+        ExportID::SelfObs);
     registry.exportColumn<AgentInterface, AgentType>(
-        ExportID::AgentType);
+        ExportID::SelfType);
     registry.exportColumn<AgentInterface, AgentActiveMask>(
-        ExportID::AgentMask);
+        ExportID::SelfMask);
     registry.exportColumn<AgentInterface, RelativeAgentObservations>(
         ExportID::AgentObsData);
     registry.exportColumn<AgentInterface, RelativeBoxObservations>(
@@ -317,9 +320,86 @@ inline void actionSystem(Engine &ctx,
     action.l = 0;
 }
 
+static inline Vector3 quatToEuler(Quat q)
+{
+    // Roll (x-axis rotation)
+    float sinr_cosp = 2.f * (q.w * q.x + q.y * q.z);
+    float cosr_cosp = 1.f - 2.f * (q.x * q.x + q.y * q.y);
+    float roll = atan2f(sinr_cosp, cosr_cosp);
+
+    // Pitch (y-axis rotation)
+    float sinp = 2.f * (q.w * q.y - q.z * q.x);
+    float pitch;
+    if (std::abs(sinp) >= 1.f) {
+        // use 90 degrees if out of range
+        pitch = copysignf(math::pi / 2.f, sinp);
+    } else {
+        pitch = asinf(sinp);
+    }
+
+    // Yaw (z-axis rotation)
+    float siny_cosp = 2.f * (q.w * q.z + q.x * q.y);
+    float cosy_cosp = 1.f - 2.f * (q.y * q.y + q.z * q.z);
+    float yaw = atan2f(siny_cosp, cosy_cosp);
+
+    return {
+        .x = roll,
+        .y = pitch,
+        .z = yaw,
+    };
+}
+
+static inline PosVelObservation computeRelativePosVelObs(
+    Vector3 frame_origin, Quat to_frame, Velocity frame_vel, 
+    Vector3 x, Quat q, Velocity vel)
+{
+    x -= frame_origin;
+    x = to_frame.rotateVec(x);
+
+    q = to_frame * q;
+    q = q.normalize();
+
+    vel.linear -= frame_vel.linear;
+    vel.angular -= frame_vel.angular;
+
+    return PosVelObservation {
+        .pos = x,
+        .rotEuler = quatToEuler(q),
+        .linearVel = to_frame.rotateVec(vel.linear),
+        .angularVel = to_frame.rotateVec(vel.angular),
+    };
+}
+
+static inline LockObservation computeLockObservation(Engine &ctx, Entity e)
+{
+    auto response_type = ctx.get<ResponseType>(e);
+
+    if (response_type != ResponseType::Static) {
+        return {
+            .hiderLocked = 0.f,
+            .seekerLocked = 0.f,
+        };
+    }
+
+    auto owner = ctx.get<OwnerTeam>(e);
+
+    if (owner == OwnerTeam::Hider) {
+        return {
+            .hiderLocked = 1.f,
+            .seekerLocked = 0.f,
+        };
+    } else {
+        return {
+            .hiderLocked = 0.f,
+            .seekerLocked = 1.f,
+        };
+    }
+}
+
 inline void collectObservationsSystem(Engine &ctx,
                                       Entity agent_e,
                                       SimEntity sim_e,
+                                      SelfObservation &self_obs,
                                       RelativeAgentObservations &agent_obs,
                                       RelativeBoxObservations &box_obs,
                                       RelativeRampObservations &ramp_obs,
@@ -335,7 +415,23 @@ inline void collectObservationsSystem(Engine &ctx,
     } 
 
     Vector3 agent_pos = ctx.get<Position>(sim_e.e);
+    Velocity agent_vel = ctx.get<Velocity>(sim_e.e);
     Quat agent_rot = ctx.get<Rotation>(sim_e.e);
+    Quat to_agent_frame = agent_rot.inv();
+
+    {
+        bool is_grabbing =
+            ctx.get<GrabData>(sim_e.e).constraintEntity != Entity::none();
+
+        self_obs.posVel = PosVelObservation {
+            .pos = agent_pos,
+            .rotEuler = quatToEuler(agent_rot),
+            .linearVel = to_agent_frame.rotateVec(agent_vel.linear),
+            .angularVel = to_agent_frame.rotateVec(agent_vel.angular),
+        };
+
+        self_obs.isGrabbing = is_grabbing;
+    }
 
     CountT num_boxes = ctx.data().numActiveBoxes;
     for (CountT box_idx = 0; box_idx < consts::maxBoxes; box_idx++) {
@@ -349,24 +445,14 @@ inline void collectObservationsSystem(Engine &ctx,
         Entity box_e = ctx.data().boxes[box_idx];
 
         Vector3 box_pos = ctx.get<Position>(box_e);
-        Vector3 box_vel = ctx.get<Velocity>(box_e).linear;
         Quat box_rot = ctx.get<Rotation>(box_e);
+        Velocity box_vel = ctx.get<Velocity>(box_e);
 
-        Vector3 box_relative_pos =
-            agent_rot.inv().rotateVec(box_pos - agent_pos);
-        Vector3 box_relative_vel =
-            agent_rot.inv().rotateVec(box_vel);
+        obs.posVel = computeRelativePosVelObs(
+            agent_pos, to_agent_frame, agent_vel, box_pos, box_rot, box_vel);
 
-        obs.pos = { box_relative_pos.x, box_relative_pos.y };
-        obs.vel = { box_relative_vel.x, box_relative_vel.y };
         obs.boxSize = ctx.data().boxSizes[box_idx];
-
-        Quat relative_rot = agent_rot * box_rot.inv();
-        obs.boxRotation = atan2f(
-            2.f * (relative_rot.w * relative_rot.z +
-                   relative_rot.x * relative_rot.y),
-            1.f - 2.f * (relative_rot.y * relative_rot.y +
-                         relative_rot.z * relative_rot.z));
+        obs.locked = computeLockObservation(ctx, box_e);
     }
 
     CountT num_ramps = ctx.data().numActiveRamps;
@@ -381,23 +467,12 @@ inline void collectObservationsSystem(Engine &ctx,
         Entity ramp_e = ctx.data().ramps[ramp_idx];
 
         Vector3 ramp_pos = ctx.get<Position>(ramp_e);
-        Vector3 ramp_vel = ctx.get<Velocity>(ramp_e).linear;
         Quat ramp_rot = ctx.get<Rotation>(ramp_e);
+        Velocity ramp_vel = ctx.get<Velocity>(ramp_e);
 
-        Vector3 ramp_relative_pos =
-            agent_rot.inv().rotateVec(ramp_pos - agent_pos);
-        Vector3 ramp_relative_vel =
-            agent_rot.inv().rotateVec(ramp_vel);
-
-        obs.pos = { ramp_relative_pos.x, ramp_relative_pos.y };
-        obs.vel = { ramp_relative_vel.x, ramp_relative_vel.y };
-
-        Quat relative_rot = agent_rot * ramp_rot.inv();
-        obs.rampRotation = atan2f(
-            2.f * (relative_rot.w * relative_rot.z +
-                   relative_rot.x * relative_rot.y),
-            1.f - 2.f * (relative_rot.y * relative_rot.y +
-                         relative_rot.z * relative_rot.z));
+        obs.posVel = computeRelativePosVelObs(
+            agent_pos, to_agent_frame, agent_vel, ramp_pos, ramp_rot, ramp_vel);
+        obs.locked = computeLockObservation(ctx, ramp_e);
     }
 
     CountT num_agents = ctx.data().numActiveAgents;
@@ -419,16 +494,24 @@ inline void collectObservationsSystem(Engine &ctx,
 
         Vector3 other_agent_pos =
             ctx.get<Position>(other_agent_sim_e);
-        Vector3 other_agent_vel =
-            ctx.get<Velocity>(other_agent_sim_e).linear;
+        Quat other_agent_rot =
+            ctx.get<Rotation>(other_agent_sim_e);
+        Velocity other_agent_vel =
+            ctx.get<Velocity>(other_agent_sim_e);
 
-        Vector3 other_agent_relative_pos =
-            agent_rot.inv().rotateVec(other_agent_pos - agent_pos);
-        Vector3 other_agent_relative_vel =
-            agent_rot.inv().rotateVec(other_agent_vel);
+        obs.posVel = computeRelativePosVelObs(
+            agent_pos, to_agent_frame, agent_vel, 
+            other_agent_pos, other_agent_rot, other_agent_vel);
 
-        obs.pos = { other_agent_relative_pos.x, other_agent_relative_pos.y };
-        obs.vel = { other_agent_relative_vel.x, other_agent_relative_vel.y };
+        AgentType other_agent_type = ctx.get<AgentType>(other_agent_e);
+
+        obs.isHider = other_agent_type == AgentType::Hider ? 1.f : 0.f;
+
+        bool is_grabbing =
+            ctx.get<GrabData>(other_agent_sim_e).constraintEntity !=
+                Entity::none();
+
+        obs.isGrabbing = is_grabbing;
     }
 }
 
@@ -918,6 +1001,7 @@ static void observationsTasks(const Config &cfg,
         collectObservationsSystem,
             Entity,
             SimEntity,
+            SelfObservation,
             RelativeAgentObservations,
             RelativeBoxObservations,
             RelativeRampObservations,

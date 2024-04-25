@@ -45,8 +45,9 @@ enum class ExportID : uint32_t {
     Reset,
     PrepCounter,
     Action,
-    AgentType,
-    AgentMask,
+    SelfObs,
+    SelfType,
+    SelfMask,
     AgentObsData,
     BoxObsData,
     RampObsData,
@@ -162,22 +163,38 @@ struct GlobalDebugPositions {
     Vector2 agentPositions[consts::maxAgents];
 };
 
+struct PosVelObservation {
+    Vector3 pos;
+    Vector3 rotEuler;
+    Vector3 linearVel;
+    Vector3 angularVel;
+};
+
+struct SelfObservation {
+    PosVelObservation posVel;
+    float isGrabbing;
+};
+
 struct AgentObservation {
-    Vector2 pos;
-    Vector2 vel;
+    PosVelObservation posVel;
+    float isHider;
+    float isGrabbing;
+};
+
+struct LockObservation {
+    float hiderLocked;
+    float seekerLocked;
 };
 
 struct BoxObservation {
-    Vector2 pos;
-    Vector2 vel;
-    Vector2 boxSize;
-    float boxRotation;
+    PosVelObservation posVel;
+    Vector3 boxSize;
+    LockObservation locked;
 };
 
 struct RampObservation {
-    Vector2 pos;
-    Vector2 vel;
-    float rampRotation;
+    PosVelObservation posVel;
+    LockObservation locked;
 };
 
 struct RelativeAgentObservations {
@@ -228,6 +245,7 @@ struct AgentInterface : public madrona::Archetype<
     SimEntity,
     AgentPrepCounter,
     Action,
+    SelfObservation,
     AgentType,
     AgentActiveMask,
     RelativeAgentObservations,
@@ -293,10 +311,8 @@ struct Sim : public madrona::WorldBase {
     Entity *obstacles;
     int32_t numObstacles;
     Entity boxes[consts::maxBoxes];
-    Vector2 boxSizes[consts::maxBoxes];
-    float boxRotations[consts::maxBoxes];
+    Vector3 boxSizes[consts::maxBoxes];
     Entity ramps[consts::maxRamps];
-    float rampRotations[consts::maxRamps];
     CountT numActiveBoxes;
     CountT numActiveRamps;
 

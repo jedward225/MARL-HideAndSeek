@@ -201,13 +201,16 @@ void ** Manager::CUDAImpl::copyOutObservations(
     cudaStream_t strm,
     void **buffers,
     Manager &mgr)
+
 {
     // Observations
     copyFromSim(strm, *buffers++, mgr.prepCounterTensor());
-    copyFromSim(strm, *buffers++, mgr.agentTypeTensor());
-    copyFromSim(strm, *buffers++, mgr.agentMaskTensor());
-    copyFromSim(strm, *buffers++, mgr.agentDataTensor());
+    copyFromSim(strm, *buffers++, mgr.selfDataTensor());
+    copyFromSim(strm, *buffers++, mgr.selfTypeTensor());
+    copyFromSim(strm, *buffers++, mgr.selfMaskTensor());
     copyFromSim(strm, *buffers++, mgr.lidarTensor());
+
+    copyFromSim(strm, *buffers++, mgr.agentDataTensor());
     copyFromSim(strm, *buffers++, mgr.boxDataTensor());
     copyFromSim(strm, *buffers++, mgr.rampDataTensor());
     copyFromSim(strm, *buffers++, mgr.visibleAgentsMaskTensor());
@@ -764,17 +767,28 @@ Tensor Manager::rewardTensor() const
         {impl_->cfg.numWorlds * impl_->maxAgentsPerWorld, 1});
 }
 
-Tensor Manager::agentTypeTensor() const
+
+Tensor Manager::selfDataTensor() const
 {
     return impl_->exportStateTensor(
-        ExportID::AgentType, TensorElementType::Int32,
+        ExportID::SelfObs, TensorElementType::Float32,
+        {
+            impl_->cfg.numWorlds * impl_->maxAgentsPerWorld,
+            sizeof(SelfObservation) / sizeof(float),
+        });
+}
+
+Tensor Manager::selfTypeTensor() const
+{
+    return impl_->exportStateTensor(
+        ExportID::SelfType, TensorElementType::Int32,
         {impl_->cfg.numWorlds * impl_->maxAgentsPerWorld, 1});
 }
 
-Tensor Manager::agentMaskTensor() const
+Tensor Manager::selfMaskTensor() const
 {
     return impl_->exportStateTensor(
-        ExportID::AgentMask, TensorElementType::Float32,
+        ExportID::SelfMask, TensorElementType::Float32,
         {impl_->cfg.numWorlds * impl_->maxAgentsPerWorld, 1});
 }
 
@@ -985,10 +999,11 @@ TrainInterface Manager::trainInterface() const
         {
             .observations = {
                 { "prep_counter", prepCounterTensor().interface() },
-                { "agent_type", agentTypeTensor().interface() },
-                { "agent_mask", agentMaskTensor().interface() },
+                { "self_data", selfDataTensor().interface() },
+                { "self_type", selfTypeTensor().interface() },
+                { "self_mask", selfMaskTensor().interface() },
+                { "self_lidar", lidarTensor().interface() },
                 { "agent_data", agentDataTensor().interface() },
-                { "agent_lidar", lidarTensor().interface() },
                 { "box_data", boxDataTensor().interface() },
                 { "ramp_data", rampDataTensor().interface() },
                 { "vis_agents_mask", visibleAgentsMaskTensor().interface() },

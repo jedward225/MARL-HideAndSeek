@@ -148,8 +148,7 @@ static void generateTrainingEnvironment(Engine &ctx,
                 ctx.data().boxes[i] = all_entities[num_entities++] =
                     makeDynObject(ctx, pos, rot, SimObject::Box);
 
-                ctx.data().boxSizes[i] = { 8, 1.5 };
-                ctx.data().boxRotations[i] = box_rotation;
+                ctx.data().boxSizes[i] = { 8, 1.5, 2.f };
                 break;
             }
 
@@ -190,8 +189,7 @@ static void generateTrainingEnvironment(Engine &ctx,
                 ctx.data().boxes[box_idx] = all_entities[num_entities++] =
                     makeDynObject(ctx, pos, rot, SimObject::Cube);
 
-                ctx.data().boxSizes[box_idx] = { 2, 2 };
-                ctx.data().boxRotations[box_idx] = box_rotation;
+                ctx.data().boxSizes[box_idx] = { 2, 2, 2 };
                 break;
             }
 
@@ -224,7 +222,6 @@ static void generateTrainingEnvironment(Engine &ctx,
             if (checkOverlap(aabb) || rejections == max_rejections) {
                 ctx.data().ramps[i] = all_entities[num_entities++] =
                     makeDynObject(ctx, pos, rot, SimObject::Ramp);
-                ctx.data().rampRotations[i] = ramp_rotation;
                 break;
             }
 

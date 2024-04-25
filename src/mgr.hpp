@@ -47,8 +47,9 @@ public:
     madrona::py::Tensor prepCounterTensor() const;
     madrona::py::Tensor actionTensor() const;
     madrona::py::Tensor rewardTensor() const;
-    madrona::py::Tensor agentTypeTensor() const;
-    madrona::py::Tensor agentMaskTensor() const;
+    madrona::py::Tensor selfDataTensor() const;
+    madrona::py::Tensor selfTypeTensor() const;
+    madrona::py::Tensor selfMaskTensor() const;
     madrona::py::Tensor agentDataTensor() const;
     madrona::py::Tensor boxDataTensor() const;
     madrona::py::Tensor rampDataTensor() const;
