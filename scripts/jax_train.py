@@ -23,6 +23,7 @@ from madrona_learn import (
 import wandb
 
 from jax_policy import make_policy
+from common import print_elos
 
 madrona_learn.init(0.6)
 
@@ -116,16 +117,16 @@ class HideSeekHooks(TrainHooks):
             print(lrs)
             print(entropy_coefs)
 
-        episode_scores = train_state_mgr.policy_states.episode_score.mean
-        print(episode_scores)
+        elos = train_state_mgr.policy_states.mmr.elo
+        print_elos(elos)
         np.set_printoptions(**old_printopts)
 
         print()
 
         metrics.tensorboard_log(tb_writer, update_id)
 
-        for i in range(episode_scores.shape[0]):
-            tb_writer.scalar(f"p{i}/episode_score", episode_scores[i], update_id)
+        for i in range(elos.shape[0]):
+            tb_writer.scalar(f"p{i}/elo", elos[i], update_id)
 
         num_train_policies = lrs.shape[0]
         for i in range(lrs.shape[0]):
