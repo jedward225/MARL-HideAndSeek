@@ -96,13 +96,16 @@ struct AgentPolicy {
     int32_t policyIdx;
 };
 
+struct TeamState {
+    bool seekersFirst;
+};
+
 struct EpisodeStats {
-    int32_t hiderScore;
-    int32_t seekerScore;
+    int32_t runningScores[2];
 };
 
 struct EpisodeResult {
-    float scores[2];
+    float finishedScores[2];
 };
 
 class Engine;

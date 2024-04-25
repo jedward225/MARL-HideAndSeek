@@ -135,7 +135,7 @@ int main(int argc, char *argv[])
     if (replay_log_path == nullptr) {
         sim_flags |= SimFlags::IgnoreEpisodeLength;
     }
-    
+
     bool enable_batch_renderer =
 #ifdef MADRONA_MACOS
         false;
@@ -157,6 +157,7 @@ int main(int argc, char *argv[])
         .maxHiders = num_hiders,
         .minSeekers = num_seekers,
         .maxSeekers = num_seekers,
+        .numPBTPolicies = 0,
         .enableBatchRenderer = enable_batch_renderer,
         .extRenderAPI = wm.gpuAPIManager().backend(),
         .extRenderDev = render_gpu.device(),

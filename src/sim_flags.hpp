@@ -8,6 +8,7 @@ enum class SimFlags : uint32_t {
     Default                = 0,
     UseFixedWorld          = 1 << 0,
     IgnoreEpisodeLength    = 1 << 1,
+    RandomFlipTeams        = 1 << 2,
 };
 
 inline SimFlags & operator|=(SimFlags &a, SimFlags b);

@@ -51,6 +51,7 @@ void Sim::registerTypes(ECSRegistry &registry,
     registry.registerSingleton<GlobalDebugPositions>();
     registry.registerSingleton<LoadCheckpoint>();
     registry.registerSingleton<Checkpoint>();
+    registry.registerSingleton<TeamState>();
     registry.registerSingleton<EpisodeStats>();
     registry.registerSingleton<EpisodeResult>();
 
@@ -715,30 +716,46 @@ inline void updateEpisodeResultsSystem(Engine &ctx,
     CountT cur_step = ctx.data().curEpisodeStep;
 
     if (cur_step == 0) {
-        ep_result.scores[0] = 0.f;
-        ep_result.scores[1] = 0.f;
+        ep_result.finishedScores[0] = 0.f;
+        ep_result.finishedScores[1] = 0.f;
 
-        stats.hiderScore = 0;
-        stats.seekerScore = 0;
+        stats.runningScores[0] = 0;
+        stats.runningScores[1] = 0;
     }
 
     // FIXME, don't rely on hiderTeamReward here.
-    if (ctx.data().hiderTeamReward.load_relaxed() == 1.f) {
-        stats.hiderScore += 1;
-    } else {
-        stats.seekerScore += 1;
+
+    if (cur_step >= numPrepSteps) {
+        bool seekers_first = ctx.singleton<TeamState>().seekersFirst;
+
+        bool hiders_hidden =
+            ctx.data().hiderTeamReward.load_relaxed() == 1.f;
+
+        if (hiders_hidden) {
+            if (seekers_first) {
+                stats.runningScores[1] += 1;
+            } else {
+                stats.runningScores[0] += 1;
+            }
+        } else {
+            if (seekers_first) {
+                stats.runningScores[0] += 1;
+            } else {
+                stats.runningScores[1] += 1;
+            }
+        }
     }
 
     if (cur_step == episodeLen - 1) {
-        if (stats.hiderScore > stats.seekerScore) {
-            ep_result.scores[0] = 1.f;
-            ep_result.scores[1] = 0.f;
-        } else if (stats.hiderScore < stats.seekerScore) {
-            ep_result.scores[0] = 0.f;
-            ep_result.scores[1] = 1.f;
+        if (stats.runningScores[0] > stats.runningScores[1]) {
+            ep_result.finishedScores[0] = 1.f;
+            ep_result.finishedScores[1] = 0.f;
+        } else if (stats.runningScores[0] < stats.runningScores[1]) {
+            ep_result.finishedScores[0] = 0.f;
+            ep_result.finishedScores[1] = 1.f;
         } else {
-            ep_result.scores[0] = 0.5f;
-            ep_result.scores[1] = 0.5f;
+            ep_result.finishedScores[0] = 0.5f;
+            ep_result.finishedScores[1] = 0.5f;
         }
     }
 }

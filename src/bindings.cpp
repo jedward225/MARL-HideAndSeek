@@ -24,6 +24,7 @@ NB_MODULE(gpu_hideseek, m) {
         .value("Default", SimFlags::Default)
         .value("UseFixedWorld", SimFlags::UseFixedWorld)
         .value("IgnoreEpisodeLength", SimFlags::IgnoreEpisodeLength)
+        .value("RandomFlipTeams", SimFlags::RandomFlipTeams)
     ;
 
     nb::class_<Manager> (m, "HideAndSeekSimulator")

@@ -233,50 +233,63 @@ static void generateTrainingEnvironment(Engine &ctx,
     }
     ctx.data().numActiveRamps = num_ramps;
 
-    for (CountT i = 0; i < num_hiders; i++) {
-        CountT rejections = 0;
-        while (true) {
-            Vector3 pos {
-                bounds.x + rng.sampleUniform() * bounds_diff,
-                bounds.x + rng.sampleUniform() * bounds_diff,
-                1.f,
-            };
-
-            const auto rot = Quat::angleAxis(rng.sampleUniform() * math::pi, {0, 0, 1});
-            Diag3x3 scale = {1.0f, 1.0f, 1.0f};
-
-            AABB aabb = obj_mgr.rigidBodyAABBs[(uint32_t)SimObject::Hider];
-            aabb = aabb.applyTRS(pos, rot, scale);
-            if (checkOverlap(aabb) || rejections == max_rejections) {
-                makeAgent(ctx, pos, rot, AgentType::Hider);
-                break;
-            }
-
-            rejections++;
-        }
+    bool seekers_first = rng.sampleI32(0, 2) == 1;
+    if ((ctx.data().simFlags & SimFlags::RandomFlipTeams) !=
+            SimFlags::RandomFlipTeams) {
+        seekers_first = false;
     }
 
-    for (CountT i = 0; i < num_seekers; i++) {
-        CountT rejections = 0;
-        while (true) {
-            Vector3 pos {
-                bounds.x + rng.sampleUniform() * bounds_diff,
-                bounds.x + rng.sampleUniform() * bounds_diff,
-                1.f,
-            };
+    ctx.singleton<TeamState>() = {
+        .seekersFirst = seekers_first,
+    };
 
-            const auto rot = Quat::angleAxis(rng.sampleUniform() * math::pi, {0, 0, 1});
-            Diag3x3 scale = {1.0f, 1.0f, 1.0f};
+    CountT team_sizes[2];
+    SimObject team_agent_obj_ids[2];
+    AgentType team_agent_types[2];
 
-            AABB aabb = obj_mgr.rigidBodyAABBs[(uint32_t)SimObject::Seeker];
-            aabb = aabb.applyTRS(pos, rot, scale);
+    if (seekers_first) {
+        team_sizes[0] = num_seekers;
+        team_agent_obj_ids[0] = SimObject::Seeker;
+        team_agent_types[0] = AgentType::Seeker;
 
-            if (checkOverlap(aabb) || rejections == max_rejections) {
-                makeAgent(ctx, pos, rot, AgentType::Seeker);
-                break;
+        team_sizes[1] = num_hiders;
+        team_agent_obj_ids[1] = SimObject::Hider;
+        team_agent_types[1] = AgentType::Hider;
+    } else {
+        team_sizes[0] = num_hiders;
+        team_agent_obj_ids[0] = SimObject::Hider;
+        team_agent_types[0] = AgentType::Hider;
+
+        team_sizes[1] = num_seekers;
+        team_agent_obj_ids[1] = SimObject::Seeker;
+        team_agent_types[1] = AgentType::Seeker;
+    }
+
+    MADRONA_UNROLL
+    for (CountT team_idx = 0; team_idx < 2; team_idx++) {
+        for (CountT i = 0; i < team_sizes[team_idx]; i++) {
+            CountT rejections = 0;
+            while (true) {
+                Vector3 pos {
+                    bounds.x + rng.sampleUniform() * bounds_diff,
+                    bounds.x + rng.sampleUniform() * bounds_diff,
+                    1.f,
+                };
+
+                const auto rot = Quat::angleAxis(
+                    rng.sampleUniform() * math::pi, {0, 0, 1});
+                Diag3x3 scale = {1.0f, 1.0f, 1.0f};
+
+                AABB aabb = obj_mgr.rigidBodyAABBs[
+                    (uint32_t)team_agent_obj_ids[team_idx]];
+                aabb = aabb.applyTRS(pos, rot, scale);
+                if (checkOverlap(aabb) || rejections == max_rejections) {
+                    makeAgent(ctx, pos, rot, team_agent_types[team_idx]);
+                    break;
+                }
+
+                rejections++;
             }
-
-            rejections++;
         }
     }
 
