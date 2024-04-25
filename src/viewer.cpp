@@ -119,7 +119,7 @@ int main(int argc, char *argv[])
     }
 
     uint32_t num_hiders = 3;
-    uint32_t num_seekers = 2;
+    uint32_t num_seekers = 3;
     uint32_t num_views = num_hiders + num_seekers;
 
     auto replay_log = Optional<HeapArray<int32_t>>::none();
