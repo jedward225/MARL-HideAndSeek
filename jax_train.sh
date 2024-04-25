@@ -26,7 +26,7 @@ CUDA_VISIBLE_DEVICES=0 MADRONA_MWGPU_KERNEL_CACHE=${ROOT_DIR}/build/cache python
     --entropy-loss-coef 0.001 \
     --value-loss-coef 0.5 \
     --num-channels 512 \
-    --pbt-ensemble-size 4 \
+    --pbt-ensemble-size 16 \
     --pbt-past-policies 32 \
     --num-hiders 2 \
     --num-seekers 2 \
