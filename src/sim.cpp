@@ -1013,7 +1013,7 @@ Sim::Sim(Engine &ctx,
     curWorldEpisode = 0;
 
     const CountT max_total_entities = consts::maxBoxes + consts::maxRamps +
-        consts::maxAgents + 30;
+        consts::maxAgents + 35;
 
     PhysicsSystem::init(ctx, cfg.rigidBodyObjMgr, deltaT,
          numPhysicsSubsteps, -9.8 * math::up, max_total_entities,

@@ -15,6 +15,7 @@ from gpu_hideseek.madrona import ExecMode
 import madrona_learn
 
 from jax_policy import make_policy
+from common import print_elos
 
 madrona_learn.init(0.6)
 
@@ -29,6 +30,9 @@ arg_parser.add_argument('--record-log', type=str)
 arg_parser.add_argument('--print-obs', action='store_true')
 arg_parser.add_argument('--print-action-probs', action='store_true')
 arg_parser.add_argument('--print-rewards', action='store_true')
+
+arg_parser.add_argument('--num-hiders', type=int)
+arg_parser.add_argument('--num-seekers', type=int)
 
 arg_parser.add_argument('--fp16', action='store_true')
 arg_parser.add_argument('--bf16', action='store_true')
@@ -55,34 +59,32 @@ else:
     policy_states, num_policies = madrona_learn.eval_load_ckpt(
         policy, args.ckpt_path, train_only=True)
 
-print(policy_states.reward_hyper_params)
-
-sim = gpu_hideseek.SimManager(
+sim = gpu_hideseek.HideAndSeekSimulator(
     exec_mode = ExecMode.CUDA if args.gpu_sim else ExecMode.CPU,
     gpu_id = args.gpu_id,
     num_worlds = args.num_worlds,
     num_pbt_policies = num_policies,
     rand_seed = 10,
     sim_flags = SimFlags.RandomFlipTeams,
-    reward_mode = RewardMode.Dense1,
-    episode_len = 200,
-    levels_per_episode = 1,
-    button_width = 1.3,
-    door_width = 20.0 / 3.,
-    reward_per_dist = 0.05,
-    slack_reward = -0.005,
+    min_hiders = args.num_hiders,
+    max_hiders = args.num_hiders,
+    min_seekers = args.num_seekers,
+    max_seekers = args.num_seekers,
 )
 
-ckpt_tensor = sim.checkpoint_tensor()
+#ckpt_tensor = sim.checkpoint_tensor()
+action_tensor = sim.action_tensor()
 
-team_size = 1
-num_teams = 1
+assert args.num_hiders == args.num_seekers
+
+team_size = args.num_hiders
+num_teams = 2
 
 num_agents_per_world = team_size * num_teams
 
 jax_gpu = jax.devices()[0].platform == 'gpu'
 
-sim_init, sim_step = sim.jax(jax_gpu)
+sim_fns = sim.jax(jax_gpu)
 
 if args.record_log:
     record_log_file = open(args.record_log, 'wb')
@@ -113,7 +115,8 @@ def host_cb(obs, actions, action_probs, values, dones, rewards):
     if args.print_rewards:
         print("Rewards:", rewards)
 
-    np.array(ckpt_tensor.to_jax()).tofile(record_log_file)
+    actions.tofile(record_log_file)
+    #np.array(ckpt_tensor.to_jax()).tofile(record_log_file)
 
     step_idx += 1
 
@@ -134,17 +137,17 @@ cfg = madrona_learn.EvalConfig(
     team_size = team_size,
     num_teams = num_teams,
     num_eval_steps = args.num_steps,
-    eval_competitive = False,
+    eval_competitive = True,
     policy_dtype = dtype,
 )
 
-episode_scores = policy_states.episode_score
+mmrs = policy_states.mmr
 
-print(episode_scores.mean)
+print_elos(mmrs.elo)
 
-episode_scores = madrona_learn.eval_policies(
-    dev, cfg, sim_init, sim_step, policy, policy_states, iter_cb)
+mmrs = madrona_learn.eval_policies(
+    dev, cfg, sim_fns, policy, policy_states, iter_cb)
 
-print(episode_scores.mean)
+print_elos(mmrs.elo)
 
 del sim
