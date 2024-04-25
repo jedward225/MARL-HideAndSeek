@@ -90,7 +90,6 @@ def extract_self_obs(obs):
         prep_counter,
         self_data,
         self_type,
-        self_mask,
         agent_lidar,
     ], axis=-1)
 
@@ -254,6 +253,9 @@ def make_policy(dtype):
         prep_fns = {
             'prep_counter': lambda x: (x.astype(jnp.float32) / 96).astype(dtype),
             'self_type': lambda x: x.astype(dtype),
+            'vis_agents_mask': lambda x: x.astype(dtype),
+            'vis_boxes_mask': lambda x: x.astype(dtype),
+            'vis_ramps_mask': lambda x: x.astype(dtype),
         },
         skip_normalization = {
             'prep_counter',
