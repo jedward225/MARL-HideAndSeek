@@ -107,31 +107,32 @@ class HideSeekHooks(TrainHooks):
         vnorm_sigma = train_state_mgr.train_states.value_normalizer_state['sigma'][0][0]
         print(f"    Value Normalizer => Mean: {vnorm_mu: .3e}, σ: {vnorm_sigma: .3e}")
 
-        lrs = train_state_mgr.train_states.hyper_params.lr
-        entropy_coefs = train_state_mgr.train_states.hyper_params.entropy_coef
-
-        old_printopts = np.get_printoptions()
-        np.set_printoptions(formatter={'float_kind':'{:.1e}'.format}, linewidth=150)
-
         if args.pbt_ensemble_size > 0:
+            old_printopts = np.get_printoptions()
+            np.set_printoptions(formatter={'float_kind':'{:.1e}'.format}, linewidth=150)
+
+            lrs = train_state_mgr.train_states.hyper_params.lr
+            entropy_coefs = train_state_mgr.train_states.hyper_params.entropy_coef
+
             print(lrs)
             print(entropy_coefs)
 
-        elos = train_state_mgr.policy_states.mmr.elo
-        print_elos(elos)
-        np.set_printoptions(**old_printopts)
+            elos = train_state_mgr.policy_states.mmr.elo
+            print_elos(elos)
 
-        print()
+            np.set_printoptions(**old_printopts)
+
+            print()
+
+            for i in range(elos.shape[0]):
+                tb_writer.scalar(f"p{i}/elo", elos[i], update_id)
+
+            num_train_policies = lrs.shape[0]
+            for i in range(lrs.shape[0]):
+                tb_writer.scalar(f"p{i}/lr", lrs[i], update_id)
+                tb_writer.scalar(f"p{i}/entropy_coef", entropy_coefs[i], update_id)
 
         metrics.tensorboard_log(tb_writer, update_id)
-
-        for i in range(elos.shape[0]):
-            tb_writer.scalar(f"p{i}/elo", elos[i], update_id)
-
-        num_train_policies = lrs.shape[0]
-        for i in range(lrs.shape[0]):
-            tb_writer.scalar(f"p{i}/lr", lrs[i], update_id)
-            tb_writer.scalar(f"p{i}/entropy_coef", entropy_coefs[i], update_id)
 
         if update_id % 500 == 0:
             train_state_mgr.save(update_id,

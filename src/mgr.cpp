@@ -248,7 +248,10 @@ void Manager::CUDAImpl::gpuStreamStep(
 
     copyFromSim(strm, *buffers++, mgr.rewardTensor());
     copyFromSim(strm, *buffers++, mgr.doneTensor());
-    copyFromSim(strm, *buffers++, mgr.episodeResultTensor());
+
+    if (cfg.numPBTPolicies > 0) {
+        copyFromSim(strm, *buffers++, mgr.episodeResultTensor());
+    }
 }
 #endif
 
@@ -989,6 +992,10 @@ TrainInterface Manager::trainInterface() const
         { "policy_assignments", policyAssignmentsTensor().interface() },
     });
 
+    auto pbt_outputs = std::to_array<NamedTensorInterface>({
+        { "episode_results", episodeResultTensor().interface() },
+    });
+
     return TrainInterface {
         {
             .actions = actionTensor().interface(),
@@ -1012,9 +1019,8 @@ TrainInterface Manager::trainInterface() const
             },
             .rewards = rewardTensor().interface(),
             .dones = doneTensor().interface(),
-            .pbt = {
-                { "episode_results", episodeResultTensor().interface() },
-            },
+            .pbt = impl_->cfg.numPBTPolicies > 0 ?
+                pbt_outputs : Span<const NamedTensorInterface>(nullptr, 0),
         },
     };
 }
