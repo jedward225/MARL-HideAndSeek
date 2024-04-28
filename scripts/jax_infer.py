@@ -63,7 +63,7 @@ sim = gpu_hideseek.HideAndSeekSimulator(
     exec_mode = ExecMode.CUDA if args.gpu_sim else ExecMode.CPU,
     gpu_id = args.gpu_id,
     num_worlds = args.num_worlds,
-    num_pbt_policies = num_policies,
+    num_pbt_policies = num_policies if num_policies > 1 else 0,
     rand_seed = 10,
     sim_flags = SimFlags.RandomFlipTeams,
     min_hiders = args.num_hiders,
@@ -99,7 +99,7 @@ def host_cb(obs, actions, action_probs, values, dones, rewards):
     if args.print_obs:
         print(obs)
 
-    #print(f"\nStep {step_idx}")
+    print(f"\nStep {step_idx}")
 
     if args.print_action_probs:
         for i in range(actions.shape[0]):
@@ -137,17 +137,18 @@ cfg = madrona_learn.EvalConfig(
     team_size = team_size,
     num_teams = num_teams,
     num_eval_steps = args.num_steps,
-    eval_competitive = True,
+    eval_competitive = num_policies > 1,
     policy_dtype = dtype,
 )
 
-mmrs = policy_states.mmr
-
-print_elos(mmrs.elo)
+if num_policies > 1:
+    mmrs = policy_states.mmr
+    print_elos(mmrs.elo)
 
 mmrs = madrona_learn.eval_policies(
     dev, cfg, sim_fns, policy, policy_states, iter_cb)
 
-print_elos(mmrs.elo)
+if num_policies > 1:
+    print_elos(mmrs.elo)
 
 del sim

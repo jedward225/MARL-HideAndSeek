@@ -130,9 +130,90 @@ class SimpleNet(nn.Module):
                 dtype = self.dtype,
             )(flattened, train)
 
+
+class HashNet(nn.Module):
+    dtype: jnp.dtype
+
+    @nn.compact
+    def __call__(
+        self,
+        obs,
+        train,
+    ):
+        @partial(jax.vmap, in_axes=(0, None), out_axes=0)
+        def simhash(x, proj):
+            ys = jnp.dot(proj, x)
+
+            @partial(jax.vmap, in_axes=(-1, -1), out_axes=-1)
+            def project(i, y):
+                return jnp.where(y > 0, jnp.array(2**i, jnp.int32),
+                                 jnp.array(0, jnp.int32))
+
+            return project(jnp.arange(ys.shape[-1]), ys).sum(axis=-1)
+
+        self_ob = obs['self']
+        agents_ob = obs['agents']
+        boxes_ob = obs['boxes']
+        ramps_ob = obs['ramps']
+
+        obs_concat = jnp.concatenate([
+            self_ob,
+            agents_ob.reshape(*agents_ob.shape[:-2], -1),
+            boxes_ob.reshape(*boxes_ob.shape[:-2], -1),
+            ramps_ob.reshape(*ramps_ob.shape[:-2], -1),
+        ], axis=-1)
+
+        hash_power = 8
+        num_hash_bins = 2 ** hash_power
+        feature_dim = 32
+
+        proj_mat = self.param('proj_mat', 
+            lambda rng, shape: random.normal(rng, shape, self.dtype),
+            (hash_power, obs_concat.shape[-1]))
+
+        hash_val = simhash(obs_concat, proj_mat)
+        hash_val = lax.stop_gradient(hash_val)
+
+        lookup_tbl = self.param('lookup',
+            jax.nn.initializers.he_normal(dtype=self.dtype),
+            (num_hash_bins, feature_dim))
+
+        features = lookup_tbl[hash_val]
+        return LayerNorm(dtype=self.dtype)(features)
+
+        #self_hash_bins = 256
+
+        #self.self_proj = make_hash_key(self, 'self_key',
+        #    (obs['self'].shape[-1], self_hash_bins))
+
+        #def hash_self_agent(self_agent):
+        #    return simhash(self_agent, self.self_proj)
+
+        #def hash_other_agent(other_agent):
+        #    pass
+
+        #def hash_box(box):
+        #    pass
+
+        #def hash_ramp(ramp):
+        #    pass
+
+        #@jax.vmap
+        #def bin_obs(obs):
+        #    self_hash = hash_self_agent(obs['self'])
+
+        #    agent_hashes = jax.vmap(hash_other_agent(obs['agents']))
+        #    box_hashes = jax.vmap(hash_box(obs['boxes']))
+        #    ramp_hashes = jax.vmap(hash_ramp(obs['ramps']))
+
+        #    agent_hashes.sum(axis=-1)
+
+        #return bin_obs(obs)
+
 class ActorNet(nn.Module):
     dtype: jnp.dtype
     use_simple: bool
+    use_hash: bool
 
     @nn.compact
     def __call__(
@@ -164,6 +245,8 @@ class ActorNet(nn.Module):
 
         if self.use_simple:
             return SimpleNet(dtype=self.dtype)(obs, train)
+        elif self.use_hash:
+            return HashNet(dtype=self.dtype)(obs, train)
         else:
             return EntitySelfAttentionNet(
                     num_embed_channels = 128,
@@ -176,6 +259,7 @@ class ActorNet(nn.Module):
 class CriticNet(nn.Module):
     dtype: jnp.dtype
     use_simple: bool
+    use_hash: bool
 
     @nn.compact
     def __call__(
@@ -203,6 +287,8 @@ class CriticNet(nn.Module):
 
         if self.use_simple:
             return SimpleNet(dtype=self.dtype)(obs, train)
+        elif self.use_hash:
+            return HashNet(dtype=self.dtype)(obs, train)
         else:
             return EntitySelfAttentionNet(
                     num_embed_channels = 128,
@@ -213,7 +299,7 @@ class CriticNet(nn.Module):
 
 def make_policy(dtype):
     actor_encoder = RecurrentBackboneEncoder(
-        net = ActorNet(dtype, use_simple=False),
+        net = ActorNet(dtype, use_simple=False, use_hash=False),
         rnn = PolicyRNN.create(
             num_hidden_channels = 256,
             num_layers = 1,
@@ -222,7 +308,7 @@ def make_policy(dtype):
     )
 
     critic_encoder = RecurrentBackboneEncoder(
-        net = CriticNet(dtype, use_simple=False),
+        net = CriticNet(dtype, use_simple=False, use_hash=False),
         rnn = PolicyRNN.create(
             num_hidden_channels = 256,
             num_layers = 1,
