@@ -130,7 +130,7 @@ int main(int argc, char *argv[])
         num_replay_steps = replay_log->size() / (num_worlds * num_views * 5);
     }
 
-    SimFlags sim_flags = SimFlags::Default;
+    SimFlags sim_flags = SimFlags::ZeroAgentVelocity;
 
     if (replay_log_path == nullptr) {
         sim_flags |= SimFlags::IgnoreEpisodeLength;

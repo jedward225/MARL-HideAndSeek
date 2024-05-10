@@ -218,6 +218,47 @@ inline void movementSystem(Engine &ctx, Action &action, SimEntity sim_e,
     ctx.get<ExternalTorque>(sim_e.e) = Vector3 { 0, 0, t_z };
 }
 
+inline void instantMovementSystem(Engine &ctx, Action &action, SimEntity sim_e,
+                                  AgentType agent_type)
+{
+    if (sim_e.e == Entity::none()) return;
+    if (agent_type == AgentType::Seeker &&
+            ctx.data().curEpisodeStep < numPrepSteps - 1) {
+        return;
+    }
+
+    constexpr CountT discrete_action_buckets = 11;
+    constexpr CountT half_buckets = discrete_action_buckets / 2;
+    constexpr float move_discrete_action_max = 800;
+    constexpr float move_delta_per_bucket = move_discrete_action_max / half_buckets;
+
+    constexpr float turn_discrete_action_max = 240;
+    constexpr float turn_delta_per_bucket = turn_discrete_action_max / half_buckets;
+
+    Quat cur_rot = ctx.get<Rotation>(sim_e.e);
+
+    float f_x = move_delta_per_bucket * (action.x - 5);
+    float f_y = move_delta_per_bucket * (action.y - 5);
+    float t_z = turn_delta_per_bucket * (action.r - 5);
+
+    ctx.get<ExternalForce>(sim_e.e) = cur_rot.rotateVec({ f_x, f_y, 0 });
+    ctx.get<ExternalTorque>(sim_e.e) = Vector3 { 0, 0, t_z };
+}
+
+// Make the agents easier to control by zeroing out their velocity
+// after each step.
+inline void agentZeroVelSystem(Engine &,
+                               Velocity &vel,
+                               GrabData &)
+{
+    vel.linear.x = 0;
+    vel.linear.y = 0;
+    vel.linear.z = fminf(vel.linear.z, 0);
+
+    vel.angular = Vector3::zero();
+    return;
+}
+
 inline void actionSystem(Engine &ctx,
                          Action &action,
                          SimEntity sim_e,
@@ -919,10 +960,21 @@ TaskGraph::NodeID queueSortByWorld(TaskGraphBuilder &builder,
 }
 #endif
 
-static TaskGraphNodeID processActionsAndPhysicsTasks(TaskGraphBuilder &builder)
+static TaskGraphNodeID processActionsAndPhysicsTasks(TaskGraphBuilder &builder,
+                                                     const Config &cfg)
 {
-    auto move_sys = builder.addToGraph<ParallelForNode<Engine, movementSystem,
-        Action, SimEntity, AgentType>>({});
+    bool instantaneous_move =
+        (cfg.simFlags & SimFlags::ZeroAgentVelocity) == SimFlags::ZeroAgentVelocity;
+
+    TaskGraphNodeID move_sys;
+
+    if (instantaneous_move) {
+        move_sys = builder.addToGraph<ParallelForNode<Engine, instantMovementSystem,
+            Action, SimEntity, AgentType>>({});
+    } else {
+        move_sys = builder.addToGraph<ParallelForNode<Engine, movementSystem,
+            Action, SimEntity, AgentType>>({});
+    }
 
     auto broadphase_setup_sys = phys::PhysicsSystem::setupBroadphaseTasks(builder,
         {move_sys});
@@ -937,6 +989,11 @@ static TaskGraphNodeID processActionsAndPhysicsTasks(TaskGraphBuilder &builder)
 
     sim_done = phys::PhysicsSystem::setupCleanupTasks(
         builder, {sim_done});
+
+    if (instantaneous_move) {
+        sim_done = builder.addToGraph<ParallelForNode<Engine, agentZeroVelSystem,
+            Velocity, GrabData>>({sim_done});
+    }
 
     return sim_done;
 }
@@ -1074,7 +1131,7 @@ static void setupInitTasks(TaskGraphBuilder &builder, const Config &cfg)
 
 static void setupStepTasks(TaskGraphBuilder &builder, const Config &cfg)
 {
-    auto sim_done = processActionsAndPhysicsTasks(builder);
+    auto sim_done = processActionsAndPhysicsTasks(builder, cfg);
     auto rewards_and_dones = rewardsAndDonesTasks(builder, {sim_done});
     auto resets = resetTasks(builder, {rewards_and_dones});
     observationsTasks(cfg, builder, {resets});
