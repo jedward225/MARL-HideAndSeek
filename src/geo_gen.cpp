@@ -1,5 +1,7 @@
 #include "geo_gen.hpp"
 
+#include <algorithm>
+
 using namespace madrona;
 using namespace madrona::math;
 using namespace madrona::phys;

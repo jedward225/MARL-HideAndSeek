@@ -92,6 +92,10 @@ class HideSeekHooks(TrainHooks):
     def _post_update_host_cb(self, update_id, metrics, train_state_mgr):
         global last_time, last_update
 
+        metrics = jax.tree.map(np.asarray, metrics)
+        train_state_mgr = jax.tree.map(np.asarray, train_state_mgr)
+        update_id = int(update_id)
+
         cur_time = time()
         update_diff = update_id - last_update
 

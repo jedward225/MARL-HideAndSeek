@@ -30,6 +30,7 @@ CUDA_VISIBLE_DEVICES=0 MADRONA_MWGPU_KERNEL_CACHE=${ROOT_DIR}/build/cache python
     --pbt-past-policies 0 \
     --num-hiders 2 \
     --num-seekers 2 \
+    --profile-port 5000 \
     --bf16
     #--pbt-ensemble-size 16 \
     #--pbt-past-policies 32 \
