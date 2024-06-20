@@ -72,6 +72,7 @@ static inline Optional<render::RenderManager> initRenderManager(
 
     return render::RenderManager(render_api, render_dev, {
         .enableBatchRenderer = mgr_cfg.enableBatchRenderer,
+        .renderMode = render::RenderManager::Config::RenderMode::Color,
         .agentViewWidth = mgr_cfg.batchRenderViewWidth,
         .agentViewHeight = mgr_cfg.batchRenderViewHeight,
         .numWorlds = mgr_cfg.numWorlds,
@@ -255,7 +256,8 @@ void Manager::CUDAImpl::gpuStreamStep(
 }
 #endif
 
-static void loadPhysicsObjects(PhysicsLoader &loader)
+static void loadPhysicsObjects(imp::AssetImporter &asset_importer,
+                               PhysicsLoader &loader)
 {
     SourceCollisionPrimitive sphere_prim {
         .type = CollisionPrimitive::Type::Sphere,
@@ -270,7 +272,7 @@ static void loadPhysicsObjects(PhysicsLoader &loader)
     };
 
     char import_err_buffer[4096];
-    auto imported_hulls = imp::ImportedAssets::importFromDisk({
+    auto imported_hulls = asset_importer.importFromDisk({
         (std::filesystem::path(DATA_DIR) / "cube_collision.obj").string().c_str(),
         (std::filesystem::path(DATA_DIR) / "wall_collision.obj").string().c_str(),
         (std::filesystem::path(DATA_DIR) / "agent_collision.obj").string().c_str(),
@@ -403,7 +405,8 @@ static void loadPhysicsObjects(PhysicsLoader &loader)
     free(rigid_body_data);
 }
 
-static void loadRenderObjects(render::RenderManager &render_mgr)
+static void loadRenderObjects(imp::AssetImporter &asset_importer,
+                              render::RenderManager &render_mgr)
 {
     std::array<std::string, (size_t)SimObject::NumObjects> render_asset_paths;
     render_asset_paths[(size_t)SimObject::Sphere] =
@@ -429,7 +432,7 @@ static void loadRenderObjects(render::RenderManager &render_mgr)
     }
 
     std::array<char, 1024> import_err;
-    auto render_assets = imp::ImportedAssets::importFromDisk(
+    auto render_assets = asset_importer.importFromDisk(
         render_asset_cstrs, Span<char>(import_err.data(), import_err.size()));
 
     if (!render_assets.has_value()) {
@@ -461,14 +464,25 @@ static void loadRenderObjects(render::RenderManager &render_mgr)
     render_assets->objects[(uint32_t)SimObject::Ramp].meshes[0].materialIDX = 4;
     render_assets->objects[(uint32_t)SimObject::Box].meshes[0].materialIDX = 5;
 
-    render_mgr.loadObjects(render_assets->objects, materials, {
-        { (std::filesystem::path(DATA_DIR) /
-           "green_grid.png").string().c_str() },
-        { (std::filesystem::path(DATA_DIR) /
-           "smile.png").string().c_str() },
-        { (std::filesystem::path(DATA_DIR) /
-           "red_smile.png").string().c_str() },
+    auto &image_importer = asset_importer.imageImporter();
+
+    StackAlloc tmp_alloc;
+    auto imported_textures = image_importer.importImages(tmp_alloc, {
+        (std::filesystem::path(DATA_DIR) /
+           "green_grid.png").string().c_str(),
+        (std::filesystem::path(DATA_DIR) /
+           "smile.png").string().c_str(),
+        (std::filesystem::path(DATA_DIR) /
+           "red_smile.png").string().c_str(),
     });
+
+    if (imported_textures.size() == 0) {
+        FATAL("Failed to load textures");
+    }
+
+    render_mgr.loadObjects(render_assets->objects, materials, imported_textures);
+
+    image_importer.deallocImportedImages(imported_textures);
 
     render_mgr.configureLighting({
         { true, math::Vector3{1.0f, 1.0f, -2.0f}, math::Vector3{1.0f, 1.0f, 1.0f} }
@@ -487,13 +501,15 @@ Manager::Impl * Manager::Impl::make(const Config &cfg)
 
     int32_t max_agents_per_world = cfg.maxHiders + cfg.maxSeekers;
 
+    imp::AssetImporter asset_importer;
+
     switch (cfg.execMode) {
     case ExecMode::CUDA: {
 #ifdef MADRONA_MWGPU_SUPPORT
         CUcontext cu_ctx = MWCudaExecutor::initCUDA(cfg.gpuID);
 
         PhysicsLoader phys_loader(cfg.execMode, 10);
-        loadPhysicsObjects(phys_loader);
+        loadPhysicsObjects(asset_importer, phys_loader);
 
         ObjectManager *phys_obj_mgr = &phys_loader.getObjectManager();
         app_cfg.rigidBodyObjMgr = phys_obj_mgr;
@@ -505,7 +521,7 @@ Manager::Impl * Manager::Impl::make(const Config &cfg)
             initRenderManager(cfg, render_gpu_state);
 
         if (render_mgr.has_value()) {
-            loadRenderObjects(*render_mgr);
+            loadRenderObjects(asset_importer, *render_mgr);
             app_cfg.renderBridge = render_mgr->bridge();
          } else {
             app_cfg.renderBridge = nullptr;
@@ -558,7 +574,7 @@ Manager::Impl * Manager::Impl::make(const Config &cfg)
     } break;
     case ExecMode::CPU: {
         PhysicsLoader phys_loader(cfg.execMode, 10);
-        loadPhysicsObjects(phys_loader);
+        loadPhysicsObjects(asset_importer, phys_loader);
 
         ObjectManager *phys_obj_mgr = &phys_loader.getObjectManager();
         app_cfg.rigidBodyObjMgr = phys_obj_mgr;
@@ -570,7 +586,7 @@ Manager::Impl * Manager::Impl::make(const Config &cfg)
             initRenderManager(cfg, render_gpu_state);
 
         if (render_mgr.has_value()) {
-            loadRenderObjects(*render_mgr);
+            loadRenderObjects(asset_importer, *render_mgr);
             app_cfg.renderBridge = render_mgr->bridge();
          } else {
             app_cfg.renderBridge = nullptr;
