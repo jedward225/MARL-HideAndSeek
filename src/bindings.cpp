@@ -93,8 +93,8 @@ NB_MODULE(gpu_hideseek, m) {
         .def("seed_tensor", &Manager::seedTensor)
         .def("jax", madrona::py::JAXInterface::buildEntry<
                 &Manager::trainInterface,
-                &Manager::init,
-                &Manager::step
+                &Manager::cpuStreamInit,
+                &Manager::cpuStreamStep
 #ifdef MADRONA_MWGPU_SUPPORT
                 ,
                 &Manager::gpuStreamInit,
