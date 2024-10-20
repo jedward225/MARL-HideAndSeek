@@ -238,10 +238,8 @@ void Manager::CUDAImpl::gpuStreamStep(
     copyToSim(strm, mgr.actionTensor(), *buffers++);
     copyToSim(strm, mgr.resetTensor(), *buffers++);
 
-    if (cfg.numPBTPolicies > 0) {
-        copyToSim(strm, mgr.policyAssignmentsTensor(), *buffers++);
-        //copyToSim(strm, mgr.rewardHyperParamsTensor(), *buffers++);
-    }
+    copyToSim(strm, mgr.policyAssignmentsTensor(), *buffers++);
+    //copyToSim(strm, mgr.rewardHyperParamsTensor(), *buffers++);
 
     mwGPU.runAsync(stepGraph, strm);
 
@@ -250,9 +248,7 @@ void Manager::CUDAImpl::gpuStreamStep(
     copyFromSim(strm, *buffers++, mgr.rewardTensor());
     copyFromSim(strm, *buffers++, mgr.doneTensor());
 
-    if (cfg.numPBTPolicies > 0) {
-        copyFromSim(strm, *buffers++, mgr.episodeResultTensor());
-    }
+    copyFromSim(strm, *buffers++, mgr.episodeResultTensor());
 }
 #endif
 
@@ -1004,20 +1000,13 @@ Tensor Manager::policyAssignmentsTensor() const
 
 TrainInterface Manager::trainInterface() const
 {
-    auto pbt_inputs = std::to_array<NamedTensorInterface>({
-        { "policy_assignments", policyAssignmentsTensor().interface() },
-    });
-
-    auto pbt_outputs = std::to_array<NamedTensorInterface>({
-        { "episode_results", episodeResultTensor().interface() },
-    });
-
     return TrainInterface {
         {
             .actions = actionTensor().interface(),
             .resets = resetTensor().interface(),
-            .pbt = impl_->cfg.numPBTPolicies > 0 ?
-                pbt_inputs : Span<const NamedTensorInterface>(nullptr, 0),
+            .pbt = {
+                { "policy_assignments", policyAssignmentsTensor().interface() },
+            },
         },
         {
             .observations = {
@@ -1035,8 +1024,9 @@ TrainInterface Manager::trainInterface() const
             },
             .rewards = rewardTensor().interface(),
             .dones = doneTensor().interface(),
-            .pbt = impl_->cfg.numPBTPolicies > 0 ?
-                pbt_outputs : Span<const NamedTensorInterface>(nullptr, 0),
+            .pbt = {
+                { "episode_results", episodeResultTensor().interface() },
+            },
         },
     };
 }

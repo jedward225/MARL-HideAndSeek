@@ -64,7 +64,7 @@ int main(int argc, char *argv[])
         .maxHiders = 3,
         .minSeekers = 2,
         .maxSeekers = 2,
-        .numPBTPolicies = 0,
+        .numPBTPolicies = 1,
         .enableBatchRenderer = false,
     });
     mgr.init();

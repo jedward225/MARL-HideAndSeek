@@ -8,6 +8,7 @@ from flax.core import FrozenDict
 import argparse
 from functools import partial
 import math
+import numpy as np
 
 import madrona_learn
 from madrona_learn import (
@@ -110,6 +111,7 @@ class PrefixCommon(nn.Module):
 
 class SimpleNet(nn.Module):
     dtype: jnp.dtype
+    embed_dim: int = 16
 
     @nn.compact
     def __call__(
@@ -117,16 +119,49 @@ class SimpleNet(nn.Module):
         obs,
         train,
     ):
-        num_batch_dims = len(obs['self'].shape) - 1
-        obs = jax.tree_map(
-            lambda o: o.reshape(*o.shape[0:num_batch_dims], -1), obs)
+        #num_batch_dims = len(obs['self'].shape) - 1
+        #obs = jax.tree_map(
+        #    lambda o: o.reshape(*o.shape[0:num_batch_dims], -1), obs)
 
-        flattened, _ = jax.tree_util.tree_flatten(obs)
-        flattened = jnp.concatenate(flattened, axis=-1)
+        obs, self_ob = obs.pop('self')
+        obs, agents_ob = obs.pop('agents')
+        obs, boxes_ob = obs.pop('boxes')
+        obs, ramps_ob = obs.pop('ramps')
+
+        assert len(obs) == 0
+
+        def embed(ob, embed_dim):
+            o = nn.Dense(
+                embed_dim,
+                use_bias=True,
+                kernel_init=jax.nn.initializers.orthogonal(scale=np.sqrt(2)),
+                bias_init=jax.nn.initializers.constant(0),
+                dtype=self.dtype,
+            )(ob)
+            
+            o = LayerNorm(dtype=self.dtype)(o)
+            o = nn.leaky_relu(o)
+            return o
+
+        self_features = embed(self_ob, self.embed_dim * 2)
+        agents_features = embed(agents_ob, self.embed_dim)
+        boxes_features = embed(boxes_ob, self.embed_dim)
+        ramps_features = embed(ramps_ob, self.embed_dim)
+
+        agents_features = jnp.max(agents_features, axis=-2)
+        boxes_features = jnp.max(boxes_features, axis=-2)
+        ramps_features = jnp.max(ramps_features, axis=-2)
+
+        flattened = jnp.concatenate([
+                self_features,
+                agents_features,
+                boxes_features,
+                ramps_features
+            ], axis=-1)
 
         return MLP(
-                num_channels = 256,
-                num_layers = 3,
+                num_channels = 64,
+                num_layers = 2,
                 dtype = self.dtype,
             )(flattened, train)
 
@@ -299,18 +334,18 @@ class CriticNet(nn.Module):
 
 def make_policy(dtype):
     actor_encoder = RecurrentBackboneEncoder(
-        net = ActorNet(dtype, use_simple=False, use_hash=False),
+        net = ActorNet(dtype, use_simple=True, use_hash=False),
         rnn = PolicyRNN.create(
-            num_hidden_channels = 256,
+            num_hidden_channels = 64,
             num_layers = 1,
             dtype = dtype,
         ),
     )
 
     critic_encoder = RecurrentBackboneEncoder(
-        net = CriticNet(dtype, use_simple=False, use_hash=False),
+        net = CriticNet(dtype, use_simple=True, use_hash=False),
         rnn = PolicyRNN.create(
-            num_hidden_channels = 256,
+            num_hidden_channels = 64,
             num_layers = 1,
             dtype = dtype,
         ),

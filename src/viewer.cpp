@@ -157,7 +157,7 @@ int main(int argc, char *argv[])
         .maxHiders = num_hiders,
         .minSeekers = num_seekers,
         .maxSeekers = num_seekers,
-        .numPBTPolicies = 0,
+        .numPBTPolicies = 1,
         .enableBatchRenderer = enable_batch_renderer,
         .extRenderAPI = wm.gpuAPIManager().backend(),
         .extRenderDev = render_gpu.device(),

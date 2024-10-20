@@ -25,7 +25,7 @@ import wandb
 from jax_policy import make_policy
 from common import print_elos
 
-madrona_learn.init(0.6)
+madrona_learn.init(0.75)
 
 arg_parser = argparse.ArgumentParser()
 arg_parser.add_argument('--gpu-id', type=int, default=0)
@@ -39,6 +39,7 @@ arg_parser.add_argument('--num-updates', type=int, required=True)
 arg_parser.add_argument('--steps-per-update', type=int, default=40)
 arg_parser.add_argument('--num-bptt-chunks', type=int, default=8)
 arg_parser.add_argument('--num-minibatches', type=int, default=2)
+arg_parser.add_argument('--num-epochs', type=int, default=4)
 
 arg_parser.add_argument('--lr', type=float, default=1e-4)
 arg_parser.add_argument('--gamma', type=float, default=0.998)
@@ -168,12 +169,12 @@ if args.pbt_ensemble_size != 0:
         team_size = args.num_hiders,
         num_train_policies = args.pbt_ensemble_size,
         num_past_policies = args.pbt_past_policies,
-        train_policy_cull_interval = 20,
-        num_cull_policies = 1,
-        past_policy_update_interval = 5,
-        self_play_portion = 0.125,
-        cross_play_portion = 0.5,
-        past_play_portion = 0.375,
+        train_policy_cull_interval = 0,
+        num_cull_policies = 0,
+        past_policy_update_interval = 20,
+        self_play_portion = 0.75,
+        cross_play_portion = 0.125,
+        past_play_portion = 0.125,
         reward_hyper_params_explore = {},
     )
 else:
@@ -220,8 +221,8 @@ cfg = TrainConfig(
         clip_coef = 0.2,
         value_loss_coef = args.value_loss_coef,
         entropy_coef = entropy_coef,
-        max_grad_norm = 0.5,
-        num_epochs = 2,
+        max_grad_norm = 5,
+        num_epochs = args.num_epochs,
         clip_value_loss = args.clip_value_loss,
         huber_value_loss = False,
     ),
