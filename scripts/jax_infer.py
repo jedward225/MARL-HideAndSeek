@@ -17,7 +17,7 @@ import madrona_learn
 from jax_policy import make_policy
 from common import print_elos
 
-madrona_learn.init(0.6)
+madrona_learn.init(0.5)
 
 arg_parser = argparse.ArgumentParser()
 arg_parser.add_argument('--num-worlds', type=int, required=True)
@@ -63,7 +63,7 @@ sim = gpu_hideseek.HideAndSeekSimulator(
     exec_mode = ExecMode.CUDA if args.gpu_sim else ExecMode.CPU,
     gpu_id = args.gpu_id,
     num_worlds = args.num_worlds,
-    num_pbt_policies = num_policies if num_policies > 1 else 0,
+    num_pbt_policies = num_policies if num_policies > 1 else 1,
     rand_seed = 10,
     sim_flags = SimFlags.RandomFlipTeams,
     min_hiders = args.num_hiders,
@@ -115,7 +115,7 @@ def host_cb(obs, actions, action_probs, values, dones, rewards):
     if args.print_rewards:
         print("Rewards:", rewards)
 
-    actions.tofile(record_log_file)
+    np.asarray(actions).tofile(record_log_file)
     #np.array(ckpt_tensor.to_jax()).tofile(record_log_file)
 
     step_idx += 1
