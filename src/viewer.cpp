@@ -118,8 +118,8 @@ int main(int argc, char *argv[])
         }
     }
 
-    uint32_t num_hiders = 2;
-    uint32_t num_seekers = 2;
+    uint32_t num_hiders = 3;
+    uint32_t num_seekers = 3;
     uint32_t num_views = num_hiders + num_seekers;
 
     auto replay_log = Optional<HeapArray<int32_t>>::none();
@@ -130,7 +130,10 @@ int main(int argc, char *argv[])
         num_replay_steps = replay_log->size() / (num_worlds * num_views * 5);
     }
 
-    SimFlags sim_flags = SimFlags::ZeroAgentVelocity;
+    SimFlags sim_flags = SimFlags::Default;
+
+    sim_flags |= SimFlags::ZeroAgentVelocity;
+    sim_flags |= SimFlags::UseFixedWorld;
 
     if (replay_log_path == nullptr) {
         sim_flags |= SimFlags::IgnoreEpisodeLength;
@@ -152,7 +155,7 @@ int main(int argc, char *argv[])
         .gpuID = 0,
         .numWorlds = num_worlds,
         .simFlags = sim_flags,
-        .randSeed = 10,
+        .randSeed = 5,
         .minHiders = num_hiders,
         .maxHiders = num_hiders,
         .minSeekers = num_seekers,
@@ -235,6 +238,8 @@ int main(int argc, char *argv[])
         printf("\n");
     };
 
+    CountT load_ckpt_world = -1;
+
     viewer.loop(
     [&](CountT world_idx,
         const Viewer::UserInput &input)
@@ -281,6 +286,12 @@ int main(int argc, char *argv[])
             mgr.triggerReset(world_idx, 9);
         }
 
+        if (input.keyHit(Key::N)) {
+            load_ckpt_world = world_idx;
+        }
+        if (input.keyHit(Key::M)) {
+            mgr.saveCheckpoint(world_idx);
+        }
     },
     [&](CountT world_idx, CountT agent_idx,
         const Viewer::UserInput &input)
@@ -331,7 +342,12 @@ int main(int argc, char *argv[])
             }
         }
 
-        mgr.step();
+        if (load_ckpt_world != -1) {
+          mgr.loadCheckpoint(load_ckpt_world);
+          load_ckpt_world = -1;
+        } else {
+          mgr.step();
+        }
 
         printObs();
     }, []() {});

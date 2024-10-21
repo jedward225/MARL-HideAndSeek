@@ -26,6 +26,9 @@ void Sim::registerTypes(ECSRegistry &registry,
 
     RenderingSystem::registerTypes(registry, cfg.renderBridge);
 
+    registry.registerSingleton<CheckpointControl>();
+    registry.registerSingleton<Checkpoint>();
+
     registry.registerComponent<AgentPrepCounter>();
     registry.registerComponent<Action>();
     registry.registerComponent<OwnerTeam>();
@@ -50,8 +53,6 @@ void Sim::registerTypes(ECSRegistry &registry,
 
     registry.registerSingleton<WorldReset>();
     registry.registerSingleton<GlobalDebugPositions>();
-    registry.registerSingleton<LoadCheckpoint>();
-    registry.registerSingleton<Checkpoint>();
     registry.registerSingleton<TeamState>();
     registry.registerSingleton<EpisodeStats>();
     registry.registerSingleton<EpisodeResult>();
@@ -94,6 +95,11 @@ void Sim::registerTypes(ECSRegistry &registry,
         ExportID::GlobalDebugPositions);
     registry.exportSingleton<EpisodeResult>(
         ExportID::EpisodeResult);
+
+    registry.exportSingleton<CheckpointControl>(
+        ExportID::CheckpointControl);
+    registry.exportSingleton<Checkpoint>(
+        ExportID::Checkpoint);
 }
 
 static void initEpisodeRNG(Engine &ctx)
@@ -103,16 +109,10 @@ static void initEpisodeRNG(Engine &ctx)
             SimFlags::UseFixedWorld) {
         new_rnd_counter = { 0, 0 };
     } else {
-        if (ctx.singleton<LoadCheckpoint>().load == 1) {
-            // If loading a checkpoint, use the random
-            // seed that generated that world.
-            new_rnd_counter = ctx.singleton<Checkpoint>().initRNDCounter;
-        } else {
-            new_rnd_counter = {
-                .a = ctx.data().curWorldEpisode++,
-                .b = (uint32_t)ctx.worldID().idx,
-            };
-        }
+        new_rnd_counter = {
+            .a = ctx.data().curWorldEpisode++,
+            .b = (uint32_t)ctx.worldID().idx,
+        };
     }
 
     ctx.data().curEpisodeRNDCounter = new_rnd_counter;
@@ -120,7 +120,7 @@ static void initEpisodeRNG(Engine &ctx)
         new_rnd_counter.a, new_rnd_counter.b));
 }
 
-static inline void resetEnvironment(Engine &ctx)
+static inline void resetEnvironment(Engine &ctx, bool update_rng)
 {
     ctx.data().curEpisodeStep = 0;
 
@@ -160,7 +160,9 @@ static inline void resetEnvironment(Engine &ctx)
 
     ctx.data().numActiveAgents = 0;
 
-    initEpisodeRNG(ctx);
+    if (update_rng) {
+      initEpisodeRNG(ctx);
+    }
 }
 
 inline void resetSystem(Engine &ctx, WorldReset &reset)
@@ -174,7 +176,7 @@ inline void resetSystem(Engine &ctx, WorldReset &reset)
     }
 
     if (level != 0) {
-        resetEnvironment(ctx);
+        resetEnvironment(ctx, true);
 
         reset.resetLevel = 0;
 
@@ -945,6 +947,189 @@ inline void updateCameraSystem(Engine &ctx,
     rot = ctx.get<Rotation>(sim_e.e);
 }
 
+inline void loadCheckpointSystem(Engine &ctx,
+                                 CheckpointControl &ckpt_ctrl)
+{
+    if (!ckpt_ctrl.trigger) {
+        return;
+    }
+
+    ckpt_ctrl.trigger = 1;
+
+    Checkpoint &ckpt = ctx.singleton<Checkpoint>();
+
+    resetEnvironment(ctx, false);
+
+    ctx.data().curEpisodeRNDCounter = ckpt.episodeRNDKey;
+    ctx.data().rng = RNG(rand::split_i(ctx.data().initRandKey,
+        ckpt.episodeRNDKey.a, ckpt.episodeRNDKey.b));
+
+    ctx.singleton<EpisodeStats>() = ckpt.episodeStats;
+    ctx.data().curEpisodeStep = ckpt.episodeStep;
+
+    // HACK, need to burn RNG state to get same result in generateEnv
+    ctx.data().rng.sampleI32(
+        ctx.data().minHiders, ctx.data().maxHiders + 1);
+    ctx.data().rng.sampleI32(
+        ctx.data().minSeekers, ctx.data().maxSeekers + 1);
+
+    generateEnvironment(ctx, 1, ckpt.numHiders, ckpt.numSeekers);
+
+    auto loadObjCkpt =
+      [&]
+    (Entity e, Checkpoint::DynObjectState &saved)
+    {
+      ctx.get<Position>(e) = saved.pos;
+      ctx.get<Rotation>(e) = saved.rot;
+      ctx.get<Velocity>(e) = saved.vel;
+      ctx.get<OwnerTeam>(e) = saved.team;
+      if (saved.isLocked) {
+        ctx.get<ResponseType>(e) = ResponseType::Static;
+      } else {
+        ctx.get<ResponseType>(e) = ResponseType::Dynamic;
+      }
+    };
+
+    assert(ctx.data().numActiveBoxes == ckpt.numBoxes);
+    for (i32 i = 0; i < ckpt.numBoxes; i++) {
+      loadObjCkpt(ctx.data().boxes[i], ckpt.boxes[i]);
+    }
+
+    assert(ctx.data().numActiveRamps == ckpt.numRamps);
+    for (i32 i = 0; i < ckpt.numRamps; i++) {
+      loadObjCkpt(ctx.data().ramps[i], ckpt.ramps[i]);
+    }
+
+    auto loadAgentCkpt =
+      [&]
+    (Entity e, Checkpoint::AgentState &saved)
+    {
+      ctx.get<Position>(e) = saved.pos;
+      ctx.get<Rotation>(e) = saved.rot;
+      ctx.get<Velocity>(e) = saved.vel;
+
+      auto &grab_data = ctx.get<GrabData>(e);
+      if (saved.grabIdx == -1) {
+        grab_data.constraintEntity = Entity::none();
+      } else {
+        Entity other;
+        assert(saved.grabIdx < ckpt.numBoxes + ckpt.numRamps);
+        if (saved.grabIdx < ckpt.numBoxes) {
+          other = ctx.data().boxes[saved.grabIdx];
+        } else {
+          other = ctx.data().ramps[saved.grabIdx - ckpt.numBoxes];
+        }
+
+        grab_data.constraintEntity = PhysicsSystem::makeFixedJoint(
+          ctx, e, other,
+          saved.grabFixed.attachRot1,
+          saved.grabFixed.attachRot2,
+          saved.grabR1, saved.grabR2, saved.grabFixed.separation);
+      }
+    };
+
+    for (i32 i = 0; i < ckpt.numHiders; i++) {
+      loadAgentCkpt(ctx.data().hiders[i], ckpt.agents[i]);
+    }
+    for (i32 i = 0; i < ckpt.numSeekers; i++) {
+      loadAgentCkpt(ctx.data().seekers[i], ckpt.agents[i + ckpt.numHiders]);
+    }
+}
+
+inline void saveCheckpointSystem(Engine &ctx,
+                                 CheckpointControl &ctrl)
+{
+  if (!ctrl.trigger) {
+    return;
+  }
+  ctrl.trigger = 1;
+
+  Checkpoint &ckpt = ctx.singleton<Checkpoint>();
+
+  ckpt.episodeRNDKey = ctx.data().curEpisodeRNDCounter;
+  ckpt.episodeStats = ctx.singleton<EpisodeStats>();
+  ckpt.episodeStep = ctx.data().curEpisodeStep;
+
+  i32 cur_agent_ckpt_idx = 0;
+
+  auto ckptAgent =
+    [&]
+  (Entity agent)
+  {
+    Checkpoint::AgentState &agent_ckpt = ckpt.agents[cur_agent_ckpt_idx++];
+    agent_ckpt.pos = ctx.get<Position>(agent);
+    agent_ckpt.rot = ctx.get<Rotation>(agent);
+    agent_ckpt.vel = ctx.get<Velocity>(agent);
+
+    agent_ckpt.grabIdx = -1;
+    agent_ckpt.grabR1 = {};
+    agent_ckpt.grabR2 = {};
+    agent_ckpt.grabFixed = {};
+
+    GrabData &grab = ctx.get<GrabData>(agent);
+    if (grab.constraintEntity != Entity::none()) {
+      JointConstraint joint = ctx.get<JointConstraint>(grab.constraintEntity);
+      agent_ckpt.grabR1 = joint.r1;
+      agent_ckpt.grabR2 = joint.r2;
+      agent_ckpt.grabFixed = joint.fixed;
+
+      for (i32 j = 0; j < ctx.data().numActiveBoxes; j++) {
+        if (ctx.data().boxes[j] == joint.e2) {
+          agent_ckpt.grabIdx = j;
+        }
+      }
+
+      for (i32 j = 0; j < ctx.data().numActiveRamps; j++) {
+        if (ctx.data().ramps[j] == joint.e2) {
+          agent_ckpt.grabIdx = j + ctx.data().numActiveBoxes;
+        }
+      }
+
+      assert(agent_ckpt.grabIdx != -1);
+    }
+  };
+
+  ckpt.numHiders = ctx.data().numHiders;
+  for (i32 i = 0; i < ckpt.numHiders; i++) {
+    Entity hider = ctx.data().hiders[i];
+    ckptAgent(hider);
+  }
+
+  assert(cur_agent_ckpt_idx <= consts::maxAgents);
+
+  ckpt.numSeekers = ctx.data().numSeekers;
+  for (i32 i = 0; i < ckpt.numSeekers; i++) {
+    Entity seeker = ctx.data().seekers[i];
+    ckptAgent(seeker);
+  }
+
+  assert(cur_agent_ckpt_idx <= consts::maxAgents);
+
+  auto ckptObject =
+    [&]
+  (Entity e, Checkpoint::DynObjectState *out)
+  {
+    out->pos = ctx.get<Position>(e);
+    out->rot = ctx.get<Rotation>(e);
+    out->vel = ctx.get<Velocity>(e);
+    out->team = ctx.get<OwnerTeam>(e);
+    out->isLocked = ctx.get<ResponseType>(e) == ResponseType::Static;
+  };
+
+  ckpt.numBoxes = ctx.data().numActiveBoxes;
+  for (i32 i = 0; i < ckpt.numBoxes; i++) {
+    Entity box = ctx.data().boxes[i];
+    ckptObject(box, &ckpt.boxes[i]);
+  }
+
+  ckpt.numRamps = ctx.data().numActiveRamps;
+  for (i32 i = 0; i < ckpt.numRamps; i++) {
+    Entity ramp = ctx.data().ramps[i];
+    ckptObject(ramp, &ckpt.ramps[i]);
+  }
+}
+
+
 #ifdef MADRONA_GPU_MODE
 template <typename ArchetypeT>
 TaskGraph::NodeID queueSortByWorld(TaskGraphBuilder &builder,
@@ -1023,13 +1208,10 @@ static TaskGraphNodeID rewardsAndDonesTasks(TaskGraphBuilder &builder,
     return update_episode_results;
 }
 
-static TaskGraphNodeID resetTasks(TaskGraphBuilder &builder,
-                                  Span<const TaskGraphNodeID> deps)
+static TaskGraphNodeID postGenTasks(TaskGraphBuilder &builder,
+                                    Span<const TaskGraphNodeID> deps)
 {
-    auto reset_sys = builder.addToGraph<ParallelForNode<Engine,
-        resetSystem, WorldReset>>(deps);
-
-    auto clear_tmp = builder.addToGraph<ResetTmpAllocNode>({reset_sys});
+    auto clear_tmp = builder.addToGraph<ResetTmpAllocNode>(deps);
 
 #ifdef MADRONA_GPU_MODE
     auto sort_dyn_agent = queueSortByWorld<DynAgent>(builder, {clear_tmp});
@@ -1048,6 +1230,15 @@ static TaskGraphNodeID resetTasks(TaskGraphBuilder &builder,
         builder, {reset_finish});
 
     return post_reset_broadphase;
+}
+
+static TaskGraphNodeID resetTasks(TaskGraphBuilder &builder,
+                                  Span<const TaskGraphNodeID> deps)
+{
+    auto reset_sys = builder.addToGraph<ParallelForNode<Engine,
+        resetSystem, WorldReset>>(deps);
+
+    return postGenTasks(builder, {reset_sys});
 }
 
 static void observationsTasks(const Config &cfg,
@@ -1137,10 +1328,35 @@ static void setupStepTasks(TaskGraphBuilder &builder, const Config &cfg)
     observationsTasks(cfg, builder, {resets});
 }
 
+static void setupSaveCheckpointTasks(TaskGraphBuilder &builder,
+                                     const Config &)
+{
+  builder.addToGraph<ParallelForNode<Engine,
+    saveCheckpointSystem,
+      CheckpointControl
+    >>({});
+}
+
+static void setupLoadCheckpointTasks(TaskGraphBuilder &builder,
+                                     const Config &cfg)
+{
+  auto load = builder.addToGraph<ParallelForNode<Engine,
+    loadCheckpointSystem,
+      CheckpointControl
+    >>({});
+
+  auto post_gen = postGenTasks(builder, {load});
+  observationsTasks(cfg, builder, {post_gen});
+}
+
 void Sim::setupTasks(TaskGraphManager &taskgraph_mgr, const Config &cfg)
 {
     setupInitTasks(taskgraph_mgr.init(TaskGraphID::Init), cfg);
     setupStepTasks(taskgraph_mgr.init(TaskGraphID::Step), cfg);
+    setupSaveCheckpointTasks(
+        taskgraph_mgr.init(TaskGraphID::SaveCheckpoints), cfg);
+    setupLoadCheckpointTasks(
+        taskgraph_mgr.init(TaskGraphID::LoadCheckpoints), cfg);
 }
 
 Sim::Sim(Engine &ctx,
@@ -1188,8 +1404,8 @@ Sim::Sim(Engine &ctx,
         .resetLevel = 1,
     };
      
-    ctx.singleton<LoadCheckpoint>() = {
-        .load = 0,
+    ctx.singleton<CheckpointControl>() = {
+        .trigger = 0,
     };
 
     for (CountT i = 0; i < (CountT)maxAgentsPerWorld; i++) {

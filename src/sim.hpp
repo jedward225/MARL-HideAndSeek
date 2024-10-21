@@ -30,6 +30,7 @@ using madrona::RNG;
 using madrona::RandKey;
 using madrona::render::Renderable;
 using madrona::phys::RigidBody;
+using madrona::i32;
 
 namespace PhysicsSystem = madrona::phys::PhysicsSystem;
 
@@ -61,12 +62,16 @@ enum class ExportID : uint32_t {
     GlobalDebugPositions,
     AgentPolicy,
     EpisodeResult,
+    CheckpointControl,
+    Checkpoint,
     NumExports,
 };
 
 enum class TaskGraphID : uint32_t {
     Init,
     Step,
+    SaveCheckpoints,
+    LoadCheckpoints,
     NumTaskGraphs,
 };
 
@@ -271,12 +276,40 @@ struct DynAgent : public madrona::Archetype<
 
 struct WorldInit {};
 
-struct LoadCheckpoint {
-    int32_t load;
+struct CheckpointControl {
+    i32 trigger;
 };
 
 struct Checkpoint {
-    RandKey initRNDCounter;
+    RandKey episodeRNDKey;
+    EpisodeStats episodeStats;
+    i32 episodeStep;
+
+    struct RigidBody {
+        Vector3 pos;
+        Quat rot;
+        Velocity vel;
+    };
+
+    struct DynObjectState : RigidBody {
+        OwnerTeam team;
+        bool isLocked;
+    };
+    
+    struct AgentState : RigidBody {
+        i32 grabIdx;
+        Vector3 grabR1;
+        Vector3 grabR2;
+        madrona::phys::JointConstraint::Fixed grabFixed;
+    };
+
+    AgentState agents[consts::maxAgents];
+    DynObjectState boxes[consts::maxBoxes];
+    DynObjectState ramps[consts::maxRamps];
+    i32 numHiders;
+    i32 numSeekers;
+    i32 numBoxes;
+    i32 numRamps;
 };
 
 struct Sim : public madrona::WorldBase {

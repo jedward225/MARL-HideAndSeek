@@ -17,6 +17,6 @@ MADRONA_MWGPU_KERNEL_CACHE=${ROOT_DIR}/build/cache python ${ROOT_DIR}/scripts/ja
     --num-seekers 3 \
     --num-steps 3600 \
     --num-worlds $1 \
-    --bf16 \
     --record-log ${ROOT_DIR}/build/record
     #--print-action-probs \
+    #--bf16 \

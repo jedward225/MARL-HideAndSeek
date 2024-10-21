@@ -111,6 +111,9 @@ struct Manager::CPUImpl : Manager::Impl {
     inline void init();
     inline void step();
 
+    inline void saveCheckpoints();
+    inline void loadCheckpoints();
+
 #ifdef MADRONA_MWGPU_SUPPORT
     inline void gpuStreamInit(cudaStream_t strm, void **buffers, Manager &mgr);
     inline void gpuStreamStep(cudaStream_t strm, void **buffers, Manager &mgr);
@@ -125,6 +128,16 @@ void Manager::CPUImpl::init()
 void Manager::CPUImpl::step()
 {
     cpuExec.runTaskGraph(TaskGraphID::Step);
+}
+
+void Manager::CPUImpl::saveCheckpoints()
+{
+    cpuExec.runTaskGraph(TaskGraphID::SaveCheckpoints);
+}
+
+void Manager::CPUImpl::loadCheckpoints()
+{
+    cpuExec.runTaskGraph(TaskGraphID::LoadCheckpoints);
 }
 
 #ifdef MADRONA_MWGPU_SUPPORT
@@ -155,9 +168,14 @@ static inline uint64_t numTensorBytes(const Tensor &t)
 struct Manager::CUDAImpl : Manager::Impl {
     MWCudaExecutor mwGPU;
     MWCudaLaunchGraph stepGraph;
+    MWCudaLaunchGraph saveCkptGraph;
+    MWCudaLaunchGraph loadCkptGraph;
 
     inline void init();
     inline void step();
+
+    inline void saveCheckpoints();
+    inline void loadCheckpoints();
 
     inline void copyFromSim(cudaStream_t strm, void *dst, const Tensor &src);
     inline void copyToSim(cudaStream_t strm, const Tensor &dst, void *src);
@@ -178,6 +196,16 @@ void Manager::CUDAImpl::init()
 void Manager::CUDAImpl::step()
 {
     mwGPU.run(stepGraph);
+}
+
+void Manager::CUDAImpl::saveCheckpoints()
+{
+    mwGPU.run(saveCkptGraph);
+}
+
+void Manager::CUDAImpl::loadCheckpoints()
+{
+    mwGPU.run(loadCkptGraph);
 }
 
 void Manager::CUDAImpl::copyFromSim(
@@ -544,6 +572,12 @@ Manager::Impl * Manager::Impl::make(const Config &cfg)
         MWCudaLaunchGraph step_graph = mwgpu_exec.buildLaunchGraph(
             TaskGraphID::Step);
 
+        MWCudaLaunchGraph save_ckpt_graph = mwgpu_exec.buildLaunchGraph(
+            TaskGraphID::SaveCheckpoints);
+
+        MWCudaLaunchGraph load_ckpt_graph = mwgpu_exec.buildLaunchGraph(
+            TaskGraphID::LoadCheckpoints);
+
         WorldReset *world_reset_buffer = 
             (WorldReset *)mwgpu_exec.getExported((uint32_t)ExportID::Reset);
 
@@ -563,6 +597,8 @@ Manager::Impl * Manager::Impl::make(const Config &cfg)
             },
             std::move(mwgpu_exec),
             std::move(step_graph),
+            std::move(save_ckpt_graph),
+            std::move(load_ckpt_graph),
         };
 #else
         FATAL("Madrona was not compiled with CUDA support");
@@ -696,6 +732,66 @@ void Manager::step()
     } break;
     case ExecMode::CPU: {
         static_cast<CPUImpl *>(impl_)->step();
+    } break;
+    }
+
+    if (impl_->renderMgr.has_value()) {
+        impl_->renderMgr->readECS();
+    }
+
+    if (impl_->cfg.enableBatchRenderer) {
+        impl_->renderMgr->batchRender();
+    }
+}
+
+void Manager::saveCheckpoint(CountT world_idx)
+{
+    auto *ctrls =
+        (CheckpointControl *)checkpointControlTensor().devicePtr();
+    //auto *ckpts =
+    //    (Checkpoint *)checkpointTensor().devicePtr();
+
+    CheckpointControl ctrl {
+      .trigger = 1,
+    };
+
+    switch (impl_->cfg.execMode) {
+    case ExecMode::CUDA: {
+#ifdef MADRONA_MWGPU_SUPPORT
+        cudaMemcpy(&ctrls[world_idx], &ctrl, sizeof(CheckpointControl),
+                   cudaMemcpyHostToDevice);
+        static_cast<CUDAImpl *>(impl_)->saveCheckpoints();
+#endif
+    } break;
+    case ExecMode::CPU: {
+        ctrls[world_idx] = ctrl;
+        static_cast<CPUImpl *>(impl_)->saveCheckpoints();
+    } break;
+    }
+}
+
+void Manager::loadCheckpoint(CountT world_idx)
+{
+    auto *ctrls =
+        (CheckpointControl *)checkpointControlTensor().devicePtr();
+    //auto *ckpts =
+    //    (Checkpoint *)checkpointTensor().devicePtr();
+
+    CheckpointControl ctrl {
+      .trigger = 1,
+    };
+
+    switch (impl_->cfg.execMode) {
+    case ExecMode::CUDA: {
+#ifdef MADRONA_MWGPU_SUPPORT
+        cudaMemcpy(&ctrls[world_idx], &ctrl, sizeof(CheckpointControl),
+                   cudaMemcpyHostToDevice);
+        static_cast<CUDAImpl *>(impl_)->loadCheckpoints();
+#endif
+    } break;
+    case ExecMode::CPU: {
+        ctrls[world_idx] = ctrl;
+        static_cast<CPUImpl *>(impl_)->loadCheckpoints();
     } break;
     }
 
@@ -891,6 +987,26 @@ madrona::py::Tensor Manager::seedTensor() const
         {
             impl_->cfg.numWorlds * impl_->maxAgentsPerWorld,
             sizeof(Seed) / sizeof(int32_t),
+        });
+}
+
+madrona::py::Tensor Manager::checkpointControlTensor() const
+{
+    return impl_->exportStateTensor(
+        ExportID::CheckpointControl, TensorElementType::UInt8,
+        {
+            impl_->cfg.numWorlds,
+            sizeof(CheckpointControl),
+        });
+}
+
+madrona::py::Tensor Manager::checkpointTensor() const
+{
+    return impl_->exportStateTensor(
+        ExportID::Checkpoint, TensorElementType::UInt8,
+        {
+            impl_->cfg.numWorlds,
+            sizeof(Checkpoint),
         });
 }
 

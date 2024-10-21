@@ -37,6 +37,9 @@ public:
     void init();
     void step();
 
+    void saveCheckpoint(madrona::CountT world_idx);
+    void loadCheckpoint(madrona::CountT world_idx);
+
     void cpuStreamInit(void **, void **) {}
     void cpuStreamStep(void **, void **) {}
 
@@ -62,6 +65,9 @@ public:
     madrona::py::Tensor globalPositionsTensor() const;
     madrona::py::Tensor lidarTensor() const;
     madrona::py::Tensor seedTensor() const;
+
+    madrona::py::Tensor checkpointControlTensor() const;
+    madrona::py::Tensor checkpointTensor() const;
 
     madrona::py::Tensor depthTensor() const;
     madrona::py::Tensor rgbTensor() const;
