@@ -229,7 +229,7 @@ inline void instantMovementSystem(Engine &ctx, Action &action, SimEntity sim_e,
         return;
     }
 
-    constexpr CountT discrete_action_buckets = 11;
+    constexpr CountT discrete_action_buckets = 5;
     constexpr CountT half_buckets = discrete_action_buckets / 2;
     constexpr float move_discrete_action_max = 800;
     constexpr float move_delta_per_bucket = move_discrete_action_max / half_buckets;
@@ -239,9 +239,9 @@ inline void instantMovementSystem(Engine &ctx, Action &action, SimEntity sim_e,
 
     Quat cur_rot = ctx.get<Rotation>(sim_e.e);
 
-    float f_x = move_delta_per_bucket * (action.x - 5);
-    float f_y = move_delta_per_bucket * (action.y - 5);
-    float t_z = turn_delta_per_bucket * (action.r - 5);
+    float f_x = move_delta_per_bucket * (action.x - 2);
+    float f_y = move_delta_per_bucket * (action.y - 2);
+    float t_z = turn_delta_per_bucket * (action.r - 2);
 
     ctx.get<ExternalForce>(sim_e.e) = cur_rot.rotateVec({ f_x, f_y, 0 });
     ctx.get<ExternalTorque>(sim_e.e) = Vector3 { 0, 0, t_z };
@@ -356,9 +356,9 @@ inline void actionSystem(Engine &ctx,
 
     // "Consume" the actions. This isn't strictly necessary but
     // allows step to be called without every agent having acted
-    action.x = 5;
-    action.y = 5;
-    action.r = 5;
+    action.x = 2;
+    action.y = 2;
+    action.r = 2;
     action.g = 0;
     action.l = 0;
 }

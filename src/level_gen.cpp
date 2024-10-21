@@ -24,9 +24,9 @@ static Entity makeAgent(Engine &ctx, Vector3 pos, Quat rot, AgentType agent_type
 
     // Zero out actions
     ctx.get<Action>(agent_iface) = {
-        .x = 5,
-        .y = 5,
-        .r = 5,
+        .x = 2,
+        .y = 2,
+        .r = 2,
         .g = 0,
         .l = 0,
     };
