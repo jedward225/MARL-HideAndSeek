@@ -73,7 +73,7 @@ sim = gpu_hideseek.HideAndSeekSimulator(
     max_seekers = args.num_seekers,
 )
 
-#ckpt_tensor = sim.checkpoint_tensor()
+ckpt_tensor = sim.ckpt_tensor()
 action_tensor = sim.action_tensor()
 
 assert args.num_hiders == args.num_seekers
@@ -94,7 +94,7 @@ else:
 
 step_idx = 0
 
-def host_cb(obs, actions, action_probs, values, dones, rewards):
+def host_cb(obs, actions, action_probs, values, dones, rewards, ckpts):
     global step_idx
 
     if args.print_obs:
@@ -116,8 +116,8 @@ def host_cb(obs, actions, action_probs, values, dones, rewards):
     if args.print_rewards:
         print("Rewards:", rewards)
 
-    np.asarray(actions).tofile(record_log_file)
-    #np.array(ckpt_tensor.to_jax()).tofile(record_log_file)
+
+    np.asarray(jax.device_get(ckpts)).tofile(record_log_file)
 
     step_idx += 1
 
@@ -126,12 +126,26 @@ def host_cb(obs, actions, action_probs, values, dones, rewards):
 def iter_cb(step_data):
     cb = partial(jax.experimental.io_callback, host_cb, ())
 
+    sim_state = step_data['sim_state']
+
+    if args.record_log:
+        save_ckpts_out = sim_fns['save_ckpts']({
+            'state': sim_state,
+            'should_save': jnp.ones((args.num_worlds, 1), jnp.int32),
+        })
+
+        sim_state = save_ckpts_out['state']
+        ckpts = save_ckpts_out['ckpts']
+    else:
+        ckpts = None
+
     cb(step_data['obs'],
        step_data['actions'],
        step_data['action_probs'],
        step_data['values'],
        step_data['dones'],
-       step_data['rewards'])
+       step_data['rewards'],
+       ckpts)
 
 cfg = madrona_learn.EvalConfig(
     num_worlds = args.num_worlds,

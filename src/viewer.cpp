@@ -2,31 +2,31 @@
 #include <madrona/render/render_mgr.hpp>
 
 #include "mgr.hpp"
+#include "sim.hpp"
 
-#include <filesystem>
 #include <fstream>
 
 using namespace madrona;
 using namespace madrona::viz;
+using namespace GPUHideSeek;
 
-static HeapArray<int32_t> readReplayLog(const char *path)
+static HeapArray<Checkpoint> readReplayLog(const char *path)
 {
     std::ifstream replay_log(path, std::ios::binary);
     replay_log.seekg(0, std::ios::end);
     int64_t size = replay_log.tellg();
     replay_log.seekg(0, std::ios::beg);
 
-    HeapArray<int32_t> log(size / sizeof(int32_t));
+    HeapArray<Checkpoint> log(size / sizeof(Checkpoint));
 
-    replay_log.read((char *)log.data(), (size / sizeof(int32_t)) * sizeof(int32_t));
+    replay_log.read((char *)log.data(),
+                    (size / sizeof(Checkpoint)) * sizeof(Checkpoint));
 
     return log;
 }
 
 int main(int argc, char *argv[])
 {
-    using namespace GPUHideSeek;
-
     uint32_t num_worlds = 1;
     ExecMode exec_mode = ExecMode::CPU;
 
@@ -122,12 +122,12 @@ int main(int argc, char *argv[])
     uint32_t num_seekers = 3;
     uint32_t num_views = num_hiders + num_seekers;
 
-    auto replay_log = Optional<HeapArray<int32_t>>::none();
+    auto replay_log = Optional<HeapArray<Checkpoint>>::none();
     uint32_t cur_replay_step = 0;
     uint32_t num_replay_steps = 0;
     if (replay_log_path != nullptr) {
         replay_log = readReplayLog(replay_log_path);
-        num_replay_steps = replay_log->size() / (num_worlds * num_views * 5);
+        num_replay_steps = replay_log->size() / num_worlds;
     }
 
     SimFlags sim_flags = SimFlags::Default;
@@ -179,32 +179,40 @@ int main(int argc, char *argv[])
         .cameraRotation = initial_camera_rotation,
     });
 
+    HeapArray<CheckpointControl> ckpt_trigger_all(num_worlds);
+    for (u32 i = 0; i < num_worlds; i++) {
+      ckpt_trigger_all[i].trigger = 1;
+    }
+
     auto replayStep = [&]() {
         if (cur_replay_step == num_replay_steps - 1) {
             return true;
         }
 
-        printf("Step: %u\n", cur_replay_step);
+        if (exec_mode == ExecMode::CUDA) {
+#ifdef MADRONA_CUDA_SUPPORT
+          cudaMemcpy(mgr.checkpointControlTensor().devicePtr(),
+                     ckpt_trigger_all.data(),
+                     sizeof(CheckpointControl) * num_worlds,
+                     cudaMemcpyHostToDevice);
+          cudaMemcpy(mgr.checkpointTensor().devicePtr(),
+                     &((*replay_log)[cur_replay_step * num_worlds]),
+                     sizeof(Checkpoint) * num_worlds,
+                     cudaMemcpyHostToDevice);
 
-        for (uint32_t i = 0; i < num_worlds; i++) {
-            for (uint32_t j = 0; j < num_views; j++) {
-                uint32_t base_idx = 0;
-                base_idx = 5 * (cur_replay_step * num_views * num_worlds +
-                    i * num_views + j);
-
-                int32_t move_amount = (*replay_log)[base_idx];
-                int32_t move_angle = (*replay_log)[base_idx + 1];
-                int32_t turn = (*replay_log)[base_idx + 2];
-                int32_t g = (*replay_log)[base_idx + 3];
-                int32_t l = (*replay_log)[base_idx + 4];
-
-                printf("%d, %d: %d %d %d %d %d\n",
-                       i, j, move_amount, move_angle, turn, g, l);
-                mgr.setAction(i * num_views + j, move_amount, move_angle, turn, g, l);
-            }
+#endif
+        } else if (exec_mode == ExecMode::CPU) {
+          memcpy(mgr.checkpointControlTensor().devicePtr(),
+                     ckpt_trigger_all.data(),
+                     sizeof(CheckpointControl) * num_worlds);
+          memcpy(mgr.checkpointTensor().devicePtr(),
+                     &((*replay_log)[cur_replay_step * num_worlds]),
+                     sizeof(Checkpoint) * num_worlds);
         }
 
-        cur_replay_step++;
+        mgr.loadCheckpoints();
+
+        cur_replay_step += 1;
 
         return false;
     };
@@ -298,31 +306,31 @@ int main(int argc, char *argv[])
     {
         using Key = Viewer::KeyboardKey;
 
-        int32_t x = 5;
-        int32_t y = 5;
-        int32_t r = 5;
+        int32_t x = 2;
+        int32_t y = 2;
+        int32_t r = 2;
         bool g = false;
         bool l = false;
 
         if (input.keyPressed(Key::W)) {
-            y += 5;
+            y += 2;
         }
         if (input.keyPressed(Key::S)) {
-            y -= 5;
+            y -= 2;
         }
 
         if (input.keyPressed(Key::D)) {
-            x += 5;
+            x += 2;
         }
         if (input.keyPressed(Key::A)) {
-            x -= 5;
+            x -= 2;
         }
 
         if (input.keyPressed(Key::Q)) {
-            r += 5;
+            r += 2;
         }
         if (input.keyPressed(Key::E)) {
-            r -= 5;
+            r -= 2;
         }
 
         if (input.keyHit(Key::G)) {
@@ -340,13 +348,13 @@ int main(int argc, char *argv[])
             if (replay_finished) {
                 viewer.stopLoop();
             }
-        }
-
-        if (load_ckpt_world != -1) {
-          mgr.loadCheckpoint(load_ckpt_world);
-          load_ckpt_world = -1;
         } else {
-          mgr.step();
+          if (load_ckpt_world != -1) {
+            mgr.loadCheckpoint(load_ckpt_world);
+            load_ckpt_world = -1;
+          } else {
+            mgr.step();
+          }
         }
 
         printObs();

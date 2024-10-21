@@ -165,6 +165,118 @@ static inline uint64_t numTensorBytes(const Tensor &t)
     return num_items * (uint64_t)t.numBytesPerItem();
 }
 
+struct JAXIOObservations {
+    AgentPrepCounter *prepCounter;
+    SelfObservation *selfObs;
+    AgentType *selfType;
+    AgentActiveMask *selfMask;
+    Lidar *lidar;
+
+    RelativeAgentObservations *agentData;
+    RelativeBoxObservations *boxData;
+    RelativeRampObservations *rampData;
+
+    AgentVisibilityMasks *agentMasks;
+    BoxVisibilityMasks *boxMasks;
+    RampVisibilityMasks *rampMasks;
+
+    inline void ** set(void **ptrs)
+    {
+      prepCounter = (AgentPrepCounter *)*ptrs++;
+      selfObs = (SelfObservation *)*ptrs++;
+      selfType = (AgentType *)*ptrs++;
+      selfMask = (AgentActiveMask *)*ptrs++;
+      lidar = (Lidar *)*ptrs++;
+
+      agentData = (RelativeAgentObservations *)*ptrs++;
+      boxData = (RelativeBoxObservations *)*ptrs++;
+      rampData = (RelativeRampObservations *)*ptrs++;
+
+      agentMasks = (AgentVisibilityMasks *)*ptrs++;
+      boxMasks = (BoxVisibilityMasks *)*ptrs++;
+      rampMasks = (RampVisibilityMasks *)*ptrs++;
+
+      return ptrs;
+    }
+};
+
+struct JAXIOSaveCheckpoint {
+    CheckpointControl *ckptCtrl;
+    Checkpoint *ckptData;
+
+#ifdef MADRONA_CUDA_SUPPORT
+    static inline JAXIOSaveCheckpoint gpuSetup(void **buffers)
+    {
+        JAXIOSaveCheckpoint io;
+        buffers = io.setupInputs(buffers);
+        buffers = io.setupOutputs(buffers);
+        return io;
+    }
+#endif
+
+    static inline JAXIOSaveCheckpoint cpuSetup(void **inputs, void **outputs)
+    {
+        JAXIOSaveCheckpoint io;
+        io.setupInputs(inputs);
+        io.setupOutputs(outputs);
+        return io;
+    }
+
+private:
+    inline void ** setupInputs(void **ptrs)
+    {
+        ckptCtrl = (CheckpointControl *)*ptrs++;
+
+        return ptrs;
+    }
+
+    inline void ** setupOutputs(void **ptrs)
+    {
+        ckptData = (Checkpoint *)*ptrs++;
+
+        return ptrs;
+    }
+};
+
+struct JAXIORestoreCheckpoint {
+    CheckpointControl *ckptCtrl;
+    Checkpoint *ckptData;
+    JAXIOObservations obs;
+
+#ifdef MADRONA_CUDA_SUPPORT
+    static inline JAXIORestoreCheckpoint gpuSetup(void **buffers)
+    {
+        JAXIORestoreCheckpoint io;
+        buffers = io.setupInputs(buffers);
+        buffers = io.setupOutputs(buffers);
+        return io;
+    }
+#endif
+
+    static inline JAXIORestoreCheckpoint cpuSetup(void **inputs, void **outputs)
+    {
+        JAXIORestoreCheckpoint io;
+        io.setupInputs(inputs);
+        io.setupOutputs(outputs);
+        return io;
+    }
+
+private:
+    inline void ** setupInputs(void **ptrs)
+    {
+        ckptCtrl = (CheckpointControl *)*ptrs++;
+        ckptData = (Checkpoint *)*ptrs++;
+
+        return ptrs;
+    }
+
+    inline void ** setupOutputs(void **ptrs)
+    {
+        return obs.set(ptrs);
+    }
+};
+
+
 struct Manager::CUDAImpl : Manager::Impl {
     MWCudaExecutor mwGPU;
     MWCudaLaunchGraph stepGraph;
@@ -179,11 +291,14 @@ struct Manager::CUDAImpl : Manager::Impl {
 
     inline void copyFromSim(cudaStream_t strm, void *dst, const Tensor &src);
     inline void copyToSim(cudaStream_t strm, const Tensor &dst, void *src);
-    inline void ** copyOutObservations(
-        cudaStream_t strm, void **buffers, Manager &mgr);
+    inline void copyOutObservations(
+        cudaStream_t strm, JAXIOObservations &io, Manager &mgr);
 
     inline void gpuStreamInit(cudaStream_t strm, void **buffers, Manager &mgr);
     inline void gpuStreamStep(cudaStream_t strm, void **buffers, Manager &mgr);
+
+    void gpuJAXSaveCheckpoints(cudaStream_t strm, void **buffers, Manager &mgr);
+    void gpuJAXLoadCheckpoints(cudaStream_t strm, void **buffers, Manager &mgr);
 };
 
 void Manager::CUDAImpl::init()
@@ -226,27 +341,25 @@ void Manager::CUDAImpl::copyToSim(
         cudaMemcpyDeviceToDevice, strm));
 }
 
-void ** Manager::CUDAImpl::copyOutObservations(
+void Manager::CUDAImpl::copyOutObservations(
     cudaStream_t strm,
-    void **buffers,
+    JAXIOObservations &io,
     Manager &mgr)
 
 {
     // Observations
-    copyFromSim(strm, *buffers++, mgr.prepCounterTensor());
-    copyFromSim(strm, *buffers++, mgr.selfDataTensor());
-    copyFromSim(strm, *buffers++, mgr.selfTypeTensor());
-    copyFromSim(strm, *buffers++, mgr.selfMaskTensor());
-    copyFromSim(strm, *buffers++, mgr.lidarTensor());
+    copyFromSim(strm, io.prepCounter, mgr.prepCounterTensor());
+    copyFromSim(strm, io.selfObs, mgr.selfDataTensor());
+    copyFromSim(strm, io.selfType, mgr.selfTypeTensor());
+    copyFromSim(strm, io.selfMask, mgr.selfMaskTensor());
+    copyFromSim(strm, io.lidar, mgr.lidarTensor());
 
-    copyFromSim(strm, *buffers++, mgr.agentDataTensor());
-    copyFromSim(strm, *buffers++, mgr.boxDataTensor());
-    copyFromSim(strm, *buffers++, mgr.rampDataTensor());
-    copyFromSim(strm, *buffers++, mgr.visibleAgentsMaskTensor());
-    copyFromSim(strm, *buffers++, mgr.visibleBoxesMaskTensor());
-    copyFromSim(strm, *buffers++, mgr.visibleRampsMaskTensor());
-
-    return buffers;
+    copyFromSim(strm, io.agentData, mgr.agentDataTensor());
+    copyFromSim(strm, io.boxData, mgr.boxDataTensor());
+    copyFromSim(strm, io.rampData, mgr.rampDataTensor());
+    copyFromSim(strm, io.agentMasks, mgr.visibleAgentsMaskTensor());
+    copyFromSim(strm, io.boxMasks, mgr.visibleBoxesMaskTensor());
+    copyFromSim(strm, io.rampMasks, mgr.visibleRampsMaskTensor());
 }
 
 void Manager::CUDAImpl::gpuStreamInit(
@@ -255,7 +368,10 @@ void Manager::CUDAImpl::gpuStreamInit(
     MWCudaLaunchGraph init_graph = mwGPU.buildLaunchGraph(TaskGraphID::Init);
 
     mwGPU.runAsync(init_graph, strm);
-    copyOutObservations(strm, buffers, mgr);
+    
+    JAXIOObservations io_obs;
+    buffers = io_obs.set(buffers);
+    copyOutObservations(strm, io_obs, mgr);
 
     REQ_CUDA(cudaStreamSynchronize(strm));
 }
@@ -271,13 +387,55 @@ void Manager::CUDAImpl::gpuStreamStep(
 
     mwGPU.runAsync(stepGraph, strm);
 
-    buffers = copyOutObservations(strm, buffers, mgr);
+    JAXIOObservations io_obs;
+    buffers = io_obs.set(buffers);
+    copyOutObservations(strm, io_obs, mgr);
 
     copyFromSim(strm, *buffers++, mgr.rewardTensor());
     copyFromSim(strm, *buffers++, mgr.doneTensor());
 
     copyFromSim(strm, *buffers++, mgr.episodeResultTensor());
 }
+
+void Manager::CUDAImpl::gpuJAXSaveCheckpoints(cudaStream_t strm,
+                                              void **buffers,
+                                              Manager &)
+{
+    JAXIOSaveCheckpoint jax_io = JAXIOSaveCheckpoint::gpuSetup(buffers);
+
+    cudaMemcpyAsync(mwGPU.getExported((i32)ExportID::CheckpointControl),
+        jax_io.ckptCtrl, sizeof(CheckpointControl) * cfg.numWorlds,
+        cudaMemcpyDeviceToDevice, strm);
+
+    mwGPU.runAsync(saveCkptGraph, strm);
+
+    cudaMemcpyAsync(jax_io.ckptData,
+        mwGPU.getExported((i32)ExportID::Checkpoint),
+        sizeof(Checkpoint) * cfg.numWorlds,
+        cudaMemcpyDeviceToDevice, strm);
+}
+
+void Manager::CUDAImpl::gpuJAXLoadCheckpoints(
+    cudaStream_t strm, void **buffers, Manager &mgr)
+{
+    JAXIORestoreCheckpoint jax_io =
+        JAXIORestoreCheckpoint::gpuSetup(buffers);
+
+    cudaMemcpyAsync(mwGPU.getExported((i32)ExportID::CheckpointControl),
+        jax_io.ckptCtrl,
+        sizeof(CheckpointControl) * cfg.numWorlds,
+        cudaMemcpyDeviceToDevice, strm);
+
+    cudaMemcpyAsync(mwGPU.getExported((i32)ExportID::Checkpoint),
+        jax_io.ckptData,
+        sizeof(Checkpoint) * cfg.numWorlds,
+        cudaMemcpyDeviceToDevice, strm);
+
+    mwGPU.runAsync(loadCkptGraph, strm);
+
+    copyOutObservations(strm, jax_io.obs, mgr);
+}
+
 #endif
 
 static void loadPhysicsObjects(imp::AssetImporter &asset_importer,
@@ -804,8 +962,30 @@ void Manager::loadCheckpoint(CountT world_idx)
     }
 }
 
+void Manager::loadCheckpoints()
+{
+    switch (impl_->cfg.execMode) {
+    case ExecMode::CUDA: {
 #ifdef MADRONA_MWGPU_SUPPORT
-void Manager::gpuStreamInit(cudaStream_t strm, void **buffers)
+        static_cast<CUDAImpl *>(impl_)->loadCheckpoints();
+#endif
+    } break;
+    case ExecMode::CPU: {
+        static_cast<CPUImpl *>(impl_)->loadCheckpoints();
+    } break;
+    }
+
+    if (impl_->renderMgr.has_value()) {
+        impl_->renderMgr->readECS();
+    }
+
+    if (impl_->cfg.enableBatchRenderer) {
+        impl_->renderMgr->batchRender();
+    }
+}
+
+#ifdef MADRONA_MWGPU_SUPPORT
+void Manager::gpuJAXInit(cudaStream_t strm, void **buffers)
 {
     switch (impl_->cfg.execMode) {
     case ExecMode::CUDA: {
@@ -823,7 +1003,7 @@ void Manager::gpuStreamInit(cudaStream_t strm, void **buffers)
     }
 }
 
-void Manager::gpuStreamStep(cudaStream_t strm, void **buffers)
+void Manager::gpuJAXStep(cudaStream_t strm, void **buffers)
 {
     switch (impl_->cfg.execMode) {
     case ExecMode::CUDA: {
@@ -833,6 +1013,42 @@ void Manager::gpuStreamStep(cudaStream_t strm, void **buffers)
     } break;
     case ExecMode::CPU: {
         static_cast<CPUImpl *>(impl_)->gpuStreamStep(strm, buffers, *this);
+    } break;
+    }
+    
+    if (impl_->renderMgr.has_value()) {
+        assert(false);
+    }
+}
+
+void Manager::gpuJAXSaveCheckpoints(cudaStream_t strm, void **buffers)
+{
+    switch (impl_->cfg.execMode) {
+    case ExecMode::CUDA: {
+#ifdef MADRONA_MWGPU_SUPPORT
+        static_cast<CUDAImpl *>(impl_)->gpuJAXSaveCheckpoints(strm, buffers, *this);
+#endif
+    } break;
+    case ExecMode::CPU: {
+        assert(false);
+    } break;
+    }
+    
+    if (impl_->renderMgr.has_value()) {
+        assert(false);
+    }
+}
+
+void Manager::gpuJAXLoadCheckpoints(cudaStream_t strm, void **buffers)
+{
+    switch (impl_->cfg.execMode) {
+    case ExecMode::CUDA: {
+#ifdef MADRONA_MWGPU_SUPPORT
+        static_cast<CUDAImpl *>(impl_)->gpuJAXLoadCheckpoints(strm, buffers, *this);
+#endif
+    } break;
+    case ExecMode::CPU: {
+        assert(false);
     } break;
     }
     
@@ -1143,6 +1359,9 @@ TrainInterface Manager::trainInterface() const
             .pbt = {
                 { "episode_results", episodeResultTensor().interface() },
             },
+        },
+        TrainCheckpointingInterface {
+            .checkpointData = checkpointTensor().interface(),
         },
     };
 }

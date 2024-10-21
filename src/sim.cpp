@@ -1042,7 +1042,7 @@ inline void saveCheckpointSystem(Engine &ctx,
   if (!ctrl.trigger) {
     return;
   }
-  ctrl.trigger = 1;
+  ctrl.trigger = 0;
 
   Checkpoint &ckpt = ctx.singleton<Checkpoint>();
 

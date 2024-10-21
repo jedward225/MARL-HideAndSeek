@@ -362,7 +362,7 @@ def make_policy(dtype):
     actor_critic = ActorCritic(
         backbone = backbone,
         actor = DenseLayerDiscreteActor(
-            actions_num_buckets = [4, 8, 5, 2],
+            actions_num_buckets = [5, 5, 5, 2, 2],
             dtype = dtype,
         ),
         critic = DenseLayerCritic(dtype=dtype),

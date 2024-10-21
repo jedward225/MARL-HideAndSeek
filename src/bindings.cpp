@@ -92,14 +92,23 @@ NB_MODULE(gpu_hideseek, m) {
         .def("rgb_tensor", &Manager::rgbTensor)
         .def("lidar_tensor", &Manager::lidarTensor)
         .def("seed_tensor", &Manager::seedTensor)
+        .def("ckpt_ctrl_tensor", &Manager::checkpointControlTensor)
+        .def("ckpt_tensor", &Manager::checkpointTensor)
         .def("jax", madrona::py::JAXInterface::buildEntry<
                 &Manager::trainInterface,
                 &Manager::cpuStreamInit,
                 &Manager::cpuStreamStep
 #ifdef MADRONA_MWGPU_SUPPORT
                 ,
-                &Manager::gpuStreamInit,
-                &Manager::gpuStreamStep
+                &Manager::gpuJAXInit,
+                &Manager::gpuJAXStep,
+#endif
+                nullptr, nullptr,
+#ifdef MADRONA_CUDA_SUPPORT
+            &Manager::gpuJAXSaveCheckpoints,
+            &Manager::gpuJAXLoadCheckpoints
+#else
+            nullptr, nullptr
 #endif
              >())
 

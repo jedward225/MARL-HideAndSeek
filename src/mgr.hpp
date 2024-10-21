@@ -39,13 +39,17 @@ public:
 
     void saveCheckpoint(madrona::CountT world_idx);
     void loadCheckpoint(madrona::CountT world_idx);
+    void loadCheckpoints();
 
     void cpuStreamInit(void **, void **) {}
     void cpuStreamStep(void **, void **) {}
 
 #ifdef MADRONA_MWGPU_SUPPORT
-    void gpuStreamInit(cudaStream_t strm, void **buffers);
-    void gpuStreamStep(cudaStream_t strm, void **buffers);
+    void gpuJAXInit(cudaStream_t strm, void **buffers);
+    void gpuJAXStep(cudaStream_t strm, void **buffers);
+
+    void gpuJAXSaveCheckpoints(cudaStream_t strm, void **buffers);
+    void gpuJAXLoadCheckpoints(cudaStream_t strm, void **buffers);
 #endif
 
     madrona::py::Tensor resetTensor() const;
