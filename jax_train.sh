@@ -18,12 +18,12 @@ CUDA_VISIBLE_DEVICES=0 MADRONA_MWGPU_KERNEL_CACHE=${ROOT_DIR}/build/cache python
     --tb-dir ${ROOT_DIR}/tb \
     --run-name $1 \
     --num-updates 100000 \
-    --num-worlds 4096 \
-    --lr 1e-4 \
-    --steps-per-update 10 \
-    --num-bptt-chunks 1 \
+    --num-worlds 1024 \
+    --lr 1e-3 \
+    --steps-per-update 40 \
+    --num-bptt-chunks 4 \
     --num-minibatches 1 \
-    --num-epochs 4 \
+    --num-epochs 2 \
     --entropy-loss-coef 0.01 \
     --value-loss-coef 0.5 \
     --num-channels 512 \
@@ -31,8 +31,9 @@ CUDA_VISIBLE_DEVICES=0 MADRONA_MWGPU_KERNEL_CACHE=${ROOT_DIR}/build/cache python
     --pbt-past-policies 4 \
     --num-hiders 3 \
     --num-seekers 3 \
+    --bf16 \
     --profile-port 5000 #\
-    #--bf16
+    #--restore 48000 \
     #--restore 20500 \
     # --num-epochs 16 # 60 / 5 
     #--steps-per-update 160 \

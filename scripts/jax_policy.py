@@ -23,6 +23,7 @@ from madrona_learn.models import (
     EntitySelfAttentionNet,
     DenseLayerDiscreteActor,
     DenseLayerCritic,
+    DreamerV3Critic
 )
 from madrona_learn.rnn import LSTM
 
@@ -111,7 +112,7 @@ class PrefixCommon(nn.Module):
 
 class SimpleNet(nn.Module):
     dtype: jnp.dtype
-    embed_dim: int = 16
+    embed_dim: int = 64
 
     @nn.compact
     def __call__(
@@ -143,7 +144,7 @@ class SimpleNet(nn.Module):
             o = nn.leaky_relu(o)
             return o
 
-        self_features = embed(self_ob, self.embed_dim * 2)
+        self_features = embed(self_ob, self.embed_dim)
         agents_features = embed(agents_ob, self.embed_dim)
         boxes_features = embed(boxes_ob, self.embed_dim)
         ramps_features = embed(ramps_ob, self.embed_dim)
@@ -160,8 +161,8 @@ class SimpleNet(nn.Module):
             ], axis=-1)
 
         return MLP(
-                num_channels = 64,
-                num_layers = 2,
+                num_channels = 256,
+                num_layers = 3,
                 dtype = self.dtype,
             )(flattened, train)
 
@@ -336,7 +337,7 @@ def make_policy(dtype):
     actor_encoder = RecurrentBackboneEncoder(
         net = ActorNet(dtype, use_simple=True, use_hash=False),
         rnn = PolicyRNN.create(
-            num_hidden_channels = 64,
+            num_hidden_channels = 256,
             num_layers = 1,
             dtype = dtype,
         ),
@@ -345,7 +346,7 @@ def make_policy(dtype):
     critic_encoder = RecurrentBackboneEncoder(
         net = CriticNet(dtype, use_simple=True, use_hash=False),
         rnn = PolicyRNN.create(
-            num_hidden_channels = 64,
+            num_hidden_channels = 256,
             num_layers = 1,
             dtype = dtype,
         ),
@@ -365,7 +366,7 @@ def make_policy(dtype):
             actions_num_buckets = [5, 5, 5, 2, 2],
             dtype = dtype,
         ),
-        critic = DenseLayerCritic(dtype=dtype),
+        critic = DreamerV3Critic(dtype=dtype),
     )
 
     obs_preprocess = ObservationsEMANormalizer.create(

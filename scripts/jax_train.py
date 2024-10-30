@@ -25,7 +25,7 @@ import wandb
 from jax_policy import make_policy
 from common import print_elos
 
-madrona_learn.init(0.75)
+madrona_learn.init(0.8)
 
 arg_parser = argparse.ArgumentParser()
 arg_parser.add_argument('--gpu-id', type=int, default=0)
@@ -44,7 +44,7 @@ arg_parser.add_argument('--num-epochs', type=int, default=4)
 arg_parser.add_argument('--lr', type=float, default=1e-4)
 arg_parser.add_argument('--gamma', type=float, default=0.998)
 arg_parser.add_argument('--entropy-loss-coef', type=float, default=0.01)
-arg_parser.add_argument('--value-loss-coef', type=float, default=0.5)
+arg_parser.add_argument('--value-loss-coef', type=float, default=1.0)
 arg_parser.add_argument('--clip-value-loss', action='store_true')
 
 arg_parser.add_argument('--num-channels', type=int, default=256)
@@ -68,7 +68,8 @@ sim = gpu_hideseek.HideAndSeekSimulator(
     exec_mode = ExecMode.CUDA if args.gpu_sim else ExecMode.CPU,
     gpu_id = args.gpu_id,
     num_worlds = args.num_worlds,
-    sim_flags = SimFlags.RandomFlipTeams | SimFlags.UseFixedWorld | SimFlags.ZeroAgentVelocity,
+    #sim_flags = SimFlags.RandomFlipTeams | SimFlags.UseFixedWorld | SimFlags.ZeroAgentVelocity,
+    sim_flags = SimFlags.RandomFlipTeams | SimFlags.ZeroAgentVelocity,
     min_hiders = args.num_hiders,
     max_hiders = args.num_hiders,
     min_seekers = args.num_seekers,
@@ -107,10 +108,10 @@ class HideSeekHooks(TrainHooks):
         last_time = cur_time
         last_update = update_id
 
-        metrics.pretty_print()
-        vnorm_mu = train_state_mgr.train_states.value_normalizer_state['mu'][0][0]
-        vnorm_sigma = train_state_mgr.train_states.value_normalizer_state['sigma'][0][0]
-        print(f"    Value Normalizer => Mean: {vnorm_mu: .3e}, σ: {vnorm_sigma: .3e}")
+        #metrics.pretty_print()
+        #vnorm_mu = train_state_mgr.train_states.value_normalizer_state['mu'][0][0]
+        #vnorm_sigma = train_state_mgr.train_states.value_normalizer_state['sigma'][0][0]
+        #print(f"    Value Normalizer => Mean: {vnorm_mu: .3e}, σ: {vnorm_sigma: .3e}")
 
         if args.pbt_ensemble_size > 0:
             old_printopts = np.get_printoptions()
@@ -137,7 +138,7 @@ class HideSeekHooks(TrainHooks):
                 tb_writer.scalar(f"p{i}/lr", lrs[i], update_id)
                 tb_writer.scalar(f"p{i}/entropy_coef", entropy_coefs[i], update_id)
 
-        metrics.tensorboard_log(tb_writer, update_id)
+        metrics.tensorboard_log(tb_writer)
 
         if update_id % 500 == 0:
             train_state_mgr.save(update_id,
@@ -172,9 +173,13 @@ if args.pbt_ensemble_size != 0:
         train_policy_cull_interval = 0,
         num_cull_policies = 0,
         past_policy_update_interval = 20,
-        self_play_portion = 0.75,
-        cross_play_portion = 0.125,
+        self_play_portion = 0.875,
+        cross_play_portion = 0.0,
         past_play_portion = 0.125,
+        #past_policy_update_interval = 0,
+        #self_play_portion = 0.0,
+        #cross_play_portion = 0.0,
+        #past_play_portion = 1.0,
         reward_hyper_params_explore = {},
     )
 else:
@@ -224,12 +229,13 @@ cfg = TrainConfig(
         max_grad_norm = 5,
         num_epochs = args.num_epochs,
         clip_value_loss = args.clip_value_loss,
-        huber_value_loss = False,
     ),
     pbt = pbt_cfg,
-    value_normalizer_decay = 0.999,
+    dreamer_v3_critic = True,
+    #value_normalizer_decay = 0.999,
     compute_dtype = dtype,
     seed = 5,
+    metrics_buffer_size = 10,
 )
 
 policy = make_policy(dtype)

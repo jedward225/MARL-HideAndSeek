@@ -133,7 +133,7 @@ int main(int argc, char *argv[])
     SimFlags sim_flags = SimFlags::Default;
 
     sim_flags |= SimFlags::ZeroAgentVelocity;
-    sim_flags |= SimFlags::UseFixedWorld;
+    //sim_flags |= SimFlags::UseFixedWorld;
 
     if (replay_log_path == nullptr) {
         sim_flags |= SimFlags::IgnoreEpisodeLength;

@@ -66,7 +66,8 @@ sim = gpu_hideseek.HideAndSeekSimulator(
     num_pbt_policies = num_policies if num_policies > 1 else 1,
     rand_seed = 5,
     #sim_flags = SimFlags.RandomFlipTeams | SimFlags.UseFixedWorld,
-    sim_flags = SimFlags.UseFixedWorld | SimFlags.ZeroAgentVelocity,
+    #sim_flags = SimFlags.UseFixedWorld | SimFlags.ZeroAgentVelocity,
+    sim_flags = SimFlags.ZeroAgentVelocity,
     min_hiders = args.num_hiders,
     max_hiders = args.num_hiders,
     min_seekers = args.num_seekers,
@@ -94,7 +95,7 @@ else:
 
 step_idx = 0
 
-def host_cb(obs, actions, action_probs, values, dones, rewards, ckpts):
+def host_cb(obs, actions, action_probs, critic, dones, rewards, ckpts):
     global step_idx
 
     if args.print_obs:
@@ -142,7 +143,7 @@ def iter_cb(step_data):
     cb(step_data['obs'],
        step_data['actions'],
        step_data['action_probs'],
-       step_data['values'],
+       step_data['critic'],
        step_data['dones'],
        step_data['rewards'],
        ckpts)
@@ -152,6 +153,7 @@ cfg = madrona_learn.EvalConfig(
     team_size = team_size,
     num_teams = num_teams,
     num_eval_steps = args.num_steps,
+    reward_gamma = 0.998,
     eval_competitive = num_policies > 1,
     policy_dtype = dtype,
 )
