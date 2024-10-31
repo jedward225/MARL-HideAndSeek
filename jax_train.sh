@@ -19,13 +19,13 @@ CUDA_VISIBLE_DEVICES=0 MADRONA_MWGPU_KERNEL_CACHE=${ROOT_DIR}/build/cache python
     --run-name $1 \
     --num-updates 100000 \
     --num-worlds 1024 \
-    --lr 1e-3 \
+    --lr 1e-4 \
     --steps-per-update 40 \
     --num-bptt-chunks 4 \
     --num-minibatches 1 \
     --num-epochs 2 \
     --entropy-loss-coef 0.01 \
-    --value-loss-coef 0.5 \
+    --value-loss-coef 1.0 \
     --num-channels 512 \
     --pbt-ensemble-size 2 \
     --pbt-past-policies 4 \

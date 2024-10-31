@@ -17,7 +17,7 @@ import madrona_learn
 from jax_policy import make_policy
 from common import print_elos
 
-madrona_learn.init(0.5)
+madrona_learn.cfg_jax_mem(0.5)
 
 arg_parser = argparse.ArgumentParser()
 arg_parser.add_argument('--num-worlds', type=int, required=True)
@@ -66,8 +66,8 @@ sim = gpu_hideseek.HideAndSeekSimulator(
     num_pbt_policies = num_policies if num_policies > 1 else 1,
     rand_seed = 5,
     #sim_flags = SimFlags.RandomFlipTeams | SimFlags.UseFixedWorld,
-    #sim_flags = SimFlags.UseFixedWorld | SimFlags.ZeroAgentVelocity,
-    sim_flags = SimFlags.ZeroAgentVelocity,
+    sim_flags = SimFlags.UseFixedWorld | SimFlags.ZeroAgentVelocity,
+    #sim_flags = SimFlags.ZeroAgentVelocity,
     min_hiders = args.num_hiders,
     max_hiders = args.num_hiders,
     min_seekers = args.num_seekers,

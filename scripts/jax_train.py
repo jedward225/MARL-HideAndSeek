@@ -25,7 +25,7 @@ import wandb
 from jax_policy import make_policy
 from common import print_elos
 
-madrona_learn.init(0.8)
+madrona_learn.cfg_jax_mem(0.8)
 
 arg_parser = argparse.ArgumentParser()
 arg_parser.add_argument('--gpu-id', type=int, default=0)
@@ -68,8 +68,8 @@ sim = gpu_hideseek.HideAndSeekSimulator(
     exec_mode = ExecMode.CUDA if args.gpu_sim else ExecMode.CPU,
     gpu_id = args.gpu_id,
     num_worlds = args.num_worlds,
-    #sim_flags = SimFlags.RandomFlipTeams | SimFlags.UseFixedWorld | SimFlags.ZeroAgentVelocity,
-    sim_flags = SimFlags.RandomFlipTeams | SimFlags.ZeroAgentVelocity,
+    sim_flags = SimFlags.RandomFlipTeams | SimFlags.UseFixedWorld | SimFlags.ZeroAgentVelocity,
+    #sim_flags = SimFlags.RandomFlipTeams | SimFlags.ZeroAgentVelocity,
     min_hiders = args.num_hiders,
     max_hiders = args.num_hiders,
     min_seekers = args.num_seekers,
@@ -246,12 +246,29 @@ if args.restore:
 else:
     restore_ckpt = None
 
+def train_loop(training_mgr):
+    def iter(i, training_mgr):
+        return training_mgr.update_iter()
+
+    return lax.fori_loop(training_mgr.update_idx, args.num_updates,
+                         iter, training_mgr)
+
 try:
-    madrona_learn.train(dev, cfg, sim_fns, policy, HideSeekHooks(),
-        restore_ckpt = restore_ckpt, profile_port = args.profile_port)
+    training_mgr = madrona_learn.init_training(
+        dev, cfg, sim_fns, policy, HideSeekHooks(),
+        restore_ckpt=restore_ckpt, profile_port=args.profile_port)
 except:
     tb_writer.flush()
     raise
+
+
+train_loop = madrona_learn.aot_compile(train_loop, training_mgr)
+
+err, training_mgr = train_loop(training_mgr)
+
+err.throw()
+
+madrona_learn.stop_training(training_mgr)
 
 tb_writer.flush()
 del sim
