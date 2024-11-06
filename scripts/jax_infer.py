@@ -50,7 +50,11 @@ elif args.bf16:
 else:
     dtype = jnp.float32
 
-policy = make_policy(dtype)
+actions_cfg = ActionsConfig(
+    actions_num_buckets = [ 5, 5, 5, 2, 2 ],
+)
+
+policy = make_policy(dtype, actions_cfg)
 
 if args.single_policy != None:
     policy_states, num_policies = madrona_learn.eval_load_ckpt(
@@ -153,6 +157,7 @@ cfg = madrona_learn.EvalConfig(
     team_size = team_size,
     num_teams = num_teams,
     num_eval_steps = args.num_steps,
+    actions = actions_cfg,
     reward_gamma = 0.998,
     eval_competitive = num_policies > 1,
     policy_dtype = dtype,

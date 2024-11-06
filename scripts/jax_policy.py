@@ -333,7 +333,7 @@ class CriticNet(nn.Module):
                     dtype = self.dtype,
                 )(obs, train=train)
 
-def make_policy(dtype):
+def make_policy(dtype, actions_cfg):
     actor_encoder = RecurrentBackboneEncoder(
         net = ActorNet(dtype, use_simple=True, use_hash=False),
         rnn = PolicyRNN.create(
@@ -363,7 +363,7 @@ def make_policy(dtype):
     actor_critic = ActorCritic(
         backbone = backbone,
         actor = DenseLayerDiscreteActor(
-            actions_num_buckets = [5, 5, 5, 2, 2],
+            cfg = actions_cfg,
             dtype = dtype,
         ),
         critic = DreamerV3Critic(dtype=dtype),

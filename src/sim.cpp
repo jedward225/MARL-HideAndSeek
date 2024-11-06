@@ -104,17 +104,10 @@ void Sim::registerTypes(ECSRegistry &registry,
 
 static void initEpisodeRNG(Engine &ctx)
 {
-    RandKey new_rnd_counter;
-    if ((ctx.data().simFlags & SimFlags::UseFixedWorld) ==
-            SimFlags::UseFixedWorld) {
-        new_rnd_counter = { 0, 0 };
-    } else {
-        new_rnd_counter = {
-            .a = ctx.data().curWorldEpisode++,
-            .b = (uint32_t)ctx.worldID().idx,
-        };
-    }
-
+    RandKey new_rnd_counter = {
+        .a = ctx.data().curWorldEpisode++,
+        .b = (uint32_t)ctx.worldID().idx,
+    };
     ctx.data().curEpisodeRNDCounter = new_rnd_counter;
     ctx.data().rng = RNG(rand::split_i(ctx.data().initRandKey,
         new_rnd_counter.a, new_rnd_counter.b));
@@ -165,6 +158,17 @@ static inline void resetEnvironment(Engine &ctx, bool update_rng)
     }
 }
 
+static RandKey levelGenRandKey(Engine &ctx)
+{
+    RandKey lvl_rnd_key = ctx.data().rng.randKey();
+    if ((ctx.data().simFlags & SimFlags::UseFixedWorld) ==
+            SimFlags::UseFixedWorld) {
+        lvl_rnd_key = { 0, 0 };
+    } 
+
+    return lvl_rnd_key;
+}
+
 inline void resetSystem(Engine &ctx, WorldReset &reset)
 {
     int32_t level = reset.resetLevel;
@@ -185,7 +189,9 @@ inline void resetSystem(Engine &ctx, WorldReset &reset)
         int32_t num_seekers = ctx.data().rng.sampleI32(
             ctx.data().minSeekers, ctx.data().maxSeekers + 1);
 
-        generateEnvironment(ctx, level, num_hiders, num_seekers);
+        
+        generateEnvironment(ctx, levelGenRandKey(ctx), level,
+                            num_hiders, num_seekers);
     } else {
         ctx.data().curEpisodeStep += 1;
     }
@@ -973,7 +979,8 @@ inline void loadCheckpointSystem(Engine &ctx,
     ctx.data().rng.sampleI32(
         ctx.data().minSeekers, ctx.data().maxSeekers + 1);
 
-    generateEnvironment(ctx, 1, ckpt.numHiders, ckpt.numSeekers);
+    generateEnvironment(
+      ctx, levelGenRandKey(ctx), 1, ckpt.numHiders, ckpt.numSeekers);
 
     auto loadObjCkpt =
       [&]

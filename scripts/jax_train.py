@@ -17,7 +17,7 @@ from gpu_hideseek.madrona import ExecMode
 
 import madrona_learn
 from madrona_learn import (
-    TrainConfig, TrainHooks, PPOConfig, PBTConfig, ParamExplore,
+    ActionsConfig, TrainConfig, TrainHooks, PPOConfig, PBTConfig, ParamExplore,
     TensorboardWriter, WandbWriter
 )
 import wandb
@@ -62,6 +62,8 @@ arg_parser.add_argument('--wandb', action='store_true')
 arg_parser.add_argument('--num-hiders', type=int, default=3)
 arg_parser.add_argument('--num-seekers', type=int, default=3)
 
+arg_parser.add_argument('--eval-frequency', type=int, default=500)
+
 args = arg_parser.parse_args()
 
 sim = gpu_hideseek.HideAndSeekSimulator(
@@ -86,79 +88,9 @@ if args.wandb:
 else:
     tb_writer = TensorboardWriter(os.path.join(args.tb_dir, args.run_name))
 
-last_time = 0
-last_update = 0
-
 @dataclass(frozen=True)
 class HideSeekHooks(TrainHooks):
-    def _post_update_host_cb(self, update_id, metrics, train_state_mgr):
-        global last_time, last_update
-
-        metrics = jax.tree.map(np.asarray, metrics)
-        train_state_mgr = jax.tree.map(np.asarray, train_state_mgr)
-        update_id = int(update_id)
-
-        cur_time = time()
-        update_diff = update_id - last_update
-
-        print(f"Update: {update_id}")
-        if last_time != 0:
-            print("  FPS:", args.num_worlds * args.steps_per_update * update_diff / (cur_time - last_time))
-
-        last_time = cur_time
-        last_update = update_id
-
-        #metrics.pretty_print()
-        #vnorm_mu = train_state_mgr.train_states.value_normalizer_state['mu'][0][0]
-        #vnorm_sigma = train_state_mgr.train_states.value_normalizer_state['sigma'][0][0]
-        #print(f"    Value Normalizer => Mean: {vnorm_mu: .3e}, σ: {vnorm_sigma: .3e}")
-
-        if args.pbt_ensemble_size > 0:
-            old_printopts = np.get_printoptions()
-            np.set_printoptions(formatter={'float_kind':'{:.1e}'.format}, linewidth=150)
-
-            lrs = train_state_mgr.train_states.hyper_params.lr
-            entropy_coefs = train_state_mgr.train_states.hyper_params.entropy_coef
-
-            print(lrs)
-            print(entropy_coefs)
-
-            elos = train_state_mgr.policy_states.mmr.elo
-            print_elos(elos)
-
-            np.set_printoptions(**old_printopts)
-
-            print()
-
-            for i in range(elos.shape[0]):
-                tb_writer.scalar(f"p{i}/elo", elos[i], update_id)
-
-            num_train_policies = lrs.shape[0]
-            for i in range(lrs.shape[0]):
-                tb_writer.scalar(f"p{i}/lr", lrs[i], update_id)
-                tb_writer.scalar(f"p{i}/entropy_coef", entropy_coefs[i], update_id)
-
-        metrics.tensorboard_log(tb_writer)
-
-        if update_id % 500 == 0:
-            train_state_mgr.save(update_id,
-                f"{args.ckpt_dir}/{args.run_name}/{update_id}")
-
-        return ()
-
-    def post_update(self, update_idx, metrics, train_state_mgr):
-        cb = partial(jax.experimental.io_callback, self._post_update_host_cb,
-            (), ordered=True)
-        noop = lambda *args: ()
-
-        update_id = update_idx + 1
-
-        should_callback = jnp.logical_or(update_id == 1, update_id % 10 == 0)
-
-        lax.cond(should_callback, cb, noop,
-                 update_id, metrics, train_state_mgr)
-
-        return should_callback
+    pass
 
 dev = jax.devices()[0]
 
@@ -170,16 +102,12 @@ if args.pbt_ensemble_size != 0:
         team_size = args.num_hiders,
         num_train_policies = args.pbt_ensemble_size,
         num_past_policies = args.pbt_past_policies,
-        train_policy_cull_interval = 0,
-        num_cull_policies = 0,
-        past_policy_update_interval = 20,
-        self_play_portion = 0.875,
-        cross_play_portion = 0.0,
-        past_play_portion = 0.125,
-        #past_policy_update_interval = 0,
-        #self_play_portion = 0.0,
+        #self_play_portion = 0.875,
         #cross_play_portion = 0.0,
-        #past_play_portion = 1.0,
+        #past_play_portion = 0.125,
+        self_play_portion = 0.0,
+        cross_play_portion = 0.0,
+        past_play_portion = 1.0,
         reward_hyper_params_explore = {},
     )
 else:
@@ -211,11 +139,13 @@ else:
     lr = args.lr
     entropy_coef = args.entropy_loss_coef
 
-
 cfg = TrainConfig(
     num_worlds = args.num_worlds,
     num_agents_per_world = args.num_hiders + args.num_seekers,
     num_updates = args.num_updates,
+    actions = ActionsConfig(
+        actions_num_buckets = [ 5, 5, 5, 2, 2 ],
+    ),
     steps_per_update = args.steps_per_update,
     num_bptt_chunks = args.num_bptt_chunks,
     lr = lr,
@@ -238,7 +168,7 @@ cfg = TrainConfig(
     metrics_buffer_size = 10,
 )
 
-policy = make_policy(dtype)
+policy = make_policy(dtype, cfg.actions)
 
 if args.restore:
     restore_ckpt = os.path.join(
@@ -246,29 +176,114 @@ if args.restore:
 else:
     restore_ckpt = None
 
-def train_loop(training_mgr):
-    def iter(i, training_mgr):
+last_time = 0
+last_update = 0
+
+def _log_metrics_host_cb(training_mgr):
+    global last_time, last_update
+
+    update_id = int(training_mgr.update_idx)
+
+    cur_time = time()
+    update_diff = update_id - last_update
+
+    print(f"Update: {update_id}")
+    if last_time != 0:
+        print("  FPS:", args.num_worlds * args.steps_per_update * update_diff / (cur_time - last_time))
+
+    last_time = cur_time
+    last_update = update_id
+
+    #metrics.pretty_print()
+
+    if args.pbt_ensemble_size > 0:
+        old_printopts = np.get_printoptions()
+        np.set_printoptions(formatter={'float_kind':'{:.1e}'.format}, linewidth=150)
+
+        lrs = np.asarray(training_mgr.state.train_states.hyper_params.lr)
+        entropy_coefs = np.asarray(
+            training_mgr.state.train_states.hyper_params.entropy_coef)
+
+        elos = np.asarray(training_mgr.state.policy_states.mmr.elo)
+        print_elos(elos)
+
+        np.set_printoptions(**old_printopts)
+
+        print()
+
+        for i in range(elos.shape[0]):
+            tb_writer.scalar(f"p{i}/elo", elos[i], update_id)
+
+        num_train_policies = lrs.shape[0]
+        for i in range(lrs.shape[0]):
+            tb_writer.scalar(f"p{i}/lr", lrs[i], update_id)
+            tb_writer.scalar(f"p{i}/entropy_coef", entropy_coefs[i], update_id)
+
+    training_mgr.log_metrics_tensorboard(tb_writer)
+
+    return ()
+
+
+def update_loop(training_mgr):
+    assert args.eval_frequency % 10 == 0
+
+    def inner_iter(i, training_mgr):
         return training_mgr.update_iter()
 
-    return lax.fori_loop(training_mgr.update_idx, args.num_updates,
-                         iter, training_mgr)
+    def outer_iter(i, training_mgr):
+        training_mgr = lax.fori_loop(0, 10, inner_iter, training_mgr)
 
-try:
-    training_mgr = madrona_learn.init_training(
-        dev, cfg, sim_fns, policy, HideSeekHooks(),
-        restore_ckpt=restore_ckpt, profile_port=args.profile_port)
-except:
+        jax.experimental.io_callback(
+            _log_metrics_host_cb, (), training_mgr, ordered=True)
+
+        return training_mgr
+
+    return lax.fori_loop(0, args.eval_frequency // 10, outer_iter, training_mgr)
+
+def eval_elo(training_mgr):
+    return madrona_learn.eval_elo(training_mgr)
+
+def train():
+    global last_time 
+
+    training_mgr = madrona_learn.init_training(dev, cfg, sim_fns, policy,
+        restore_ckpt=restore_ckpt,
+        profile_port=args.profile_port)
+
+    assert training_mgr.update_idx % args.eval_frequency == 0
+    num_outer_iters = ((args.num_updates - int(training_mgr.update_idx)) //
+        args.eval_frequency)
+
+    update_loop_compiled = madrona_learn.aot_compile(update_loop, training_mgr)
+
+    eval_elo_compiled = madrona_learn.aot_compile(eval_elo, training_mgr)
+
+    last_time = time()
+
+    for i in range(num_outer_iters):
+        err, training_mgr = update_loop_compiled(training_mgr)
+        err.throw()
+
+        err, training_mgr = eval_elo_compiled(training_mgr)
+        err.throw()
+
+        print(training_mgr.state.policy_states.mmr.elo)
+
+        err, training_mgr = eval_elo_compiled(training_mgr)
+        err.throw()
+
+        print(training_mgr.state.policy_states.mmr.elo)
+
+        training_mgr.save_ckpt(f"{args.ckpt_dir}/{args.run_name}")
+    
+    madrona_learn.stop_training(training_mgr)
+
+if __name__ == "__main__":
+    try:
+        train()
+    except:
+        tb_writer.flush()
+        raise
+    
     tb_writer.flush()
-    raise
-
-
-train_loop = madrona_learn.aot_compile(train_loop, training_mgr)
-
-err, training_mgr = train_loop(training_mgr)
-
-err.throw()
-
-madrona_learn.stop_training(training_mgr)
-
-tb_writer.flush()
-del sim
+    del sim

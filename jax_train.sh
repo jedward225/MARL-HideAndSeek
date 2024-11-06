@@ -28,12 +28,13 @@ CUDA_VISIBLE_DEVICES=0 MADRONA_MWGPU_KERNEL_CACHE=${ROOT_DIR}/build/cache python
     --value-loss-coef 1.0 \
     --num-channels 512 \
     --pbt-ensemble-size 2 \
-    --pbt-past-policies 4 \
+    --pbt-past-policies 2 \
     --num-hiders 3 \
     --num-seekers 3 \
     --bf16 \
+    --eval-frequency 100 \
     --profile-port 5000 #\
-    #--restore 48000 \
+    #--restore 300 \
     #--restore 20500 \
     # --num-epochs 16 # 60 / 5 
     #--steps-per-update 160 \

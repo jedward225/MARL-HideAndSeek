@@ -77,11 +77,10 @@ static Entity makePlane(Engine &ctx, Vector3 offset, Quat rot) {
 // 2 movable ramps
 
 static void generateTrainingEnvironment(Engine &ctx,
+                                        RNG &rng,
                                         CountT num_hiders,
                                         CountT num_seekers)
 {
-    auto &rng = ctx.data().rng;
-
     CountT total_num_boxes = (CountT)rng.sampleI32(3, 10);
     assert(total_num_boxes <= consts::maxBoxes);
 
@@ -230,7 +229,9 @@ static void generateTrainingEnvironment(Engine &ctx,
     }
     ctx.data().numActiveRamps = num_ramps;
 
-    bool seekers_first = rng.sampleI32(0, 2) == 1;
+    // Use the episode RNG not level gen RNG here so we can randomly
+    // flip starting team even given a fixed seed.
+    bool seekers_first = ctx.data().rng.sampleI32(0, 2) == 1;
     if ((ctx.data().simFlags & SimFlags::RandomFlipTeams) !=
             SimFlags::RandomFlipTeams) {
         seekers_first = false;
@@ -309,12 +310,15 @@ static void generateTrainingEnvironment(Engine &ctx,
 static void generateDebugEnvironment(Engine &ctx, CountT level_id);
 
 void generateEnvironment(Engine &ctx,
+                         RandKey level_gen_rnd,
                          CountT level_id,
                          CountT num_hiders,
                          CountT num_seekers)
 {
+    RNG level_rng(level_gen_rnd);
+
     if (level_id == 1) {
-        generateTrainingEnvironment(ctx, num_hiders, num_seekers);
+        generateTrainingEnvironment(ctx, level_rng, num_hiders, num_seekers);
     } else {
         generateDebugEnvironment(ctx, level_id);
     }
