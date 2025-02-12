@@ -1330,38 +1330,46 @@ Tensor Manager::policyAssignmentsTensor() const
         });
 }
 
+Tensor Manager::simControlTensor() const
+{
+  return Tensor(nullptr, TensorElementType::Int32, {0}, Optional<int>::none());
+}
+
 TrainInterface Manager::trainInterface() const
 {
     return TrainInterface {
         {
-            .actions = actionTensor().interface(),
-            .resets = resetTensor().interface(),
+            .actions = { 
+                { "actions", actionTensor() },
+            },
+            .resets = resetTensor(),
+            .simCtrl = simControlTensor(),
             .pbt = {
-                { "policy_assignments", policyAssignmentsTensor().interface() },
+                { "policy_assignments", policyAssignmentsTensor() },
             },
         },
         {
             .observations = {
-                { "prep_counter", prepCounterTensor().interface() },
-                { "self_data", selfDataTensor().interface() },
-                { "self_type", selfTypeTensor().interface() },
-                { "self_mask", selfMaskTensor().interface() },
-                { "self_lidar", lidarTensor().interface() },
-                { "agent_data", agentDataTensor().interface() },
-                { "box_data", boxDataTensor().interface() },
-                { "ramp_data", rampDataTensor().interface() },
-                { "vis_agents_mask", visibleAgentsMaskTensor().interface() },
-                { "vis_boxes_mask", visibleBoxesMaskTensor().interface() },
-                { "vis_ramps_mask", visibleRampsMaskTensor().interface() },
+                { "prep_counter", prepCounterTensor() },
+                { "self_data", selfDataTensor() },
+                { "self_type", selfTypeTensor() },
+                { "self_mask", selfMaskTensor() },
+                { "self_lidar", lidarTensor() },
+                { "agent_data", agentDataTensor() },
+                { "box_data", boxDataTensor() },
+                { "ramp_data", rampDataTensor() },
+                { "vis_agents_mask", visibleAgentsMaskTensor() },
+                { "vis_boxes_mask", visibleBoxesMaskTensor() },
+                { "vis_ramps_mask", visibleRampsMaskTensor() },
             },
-            .rewards = rewardTensor().interface(),
-            .dones = doneTensor().interface(),
+            .rewards = rewardTensor(),
+            .dones = doneTensor(),
             .pbt = {
-                { "episode_results", episodeResultTensor().interface() },
+                { "episode_results", episodeResultTensor() },
             },
         },
         TrainCheckpointingInterface {
-            .checkpointData = checkpointTensor().interface(),
+            .checkpointData = checkpointTensor(),
         },
     };
 }

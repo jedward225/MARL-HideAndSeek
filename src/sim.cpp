@@ -1137,21 +1137,6 @@ inline void saveCheckpointSystem(Engine &ctx,
 }
 
 
-#ifdef MADRONA_GPU_MODE
-template <typename ArchetypeT>
-TaskGraph::NodeID queueSortByWorld(TaskGraphBuilder &builder,
-                                   Span<const TaskGraph::NodeID> deps)
-{
-    auto sort_sys =
-        builder.addToGraph<SortArchetypeNode<ArchetypeT, WorldID>>(
-            deps);
-    auto post_sort_reset_tmp =
-        builder.addToGraph<ResetTmpAllocNode>({sort_sys});
-
-    return post_sort_reset_tmp;
-}
-#endif
-
 static TaskGraphNodeID processActionsAndPhysicsTasks(TaskGraphBuilder &builder,
                                                      const Config &cfg)
 {
@@ -1220,13 +1205,9 @@ static TaskGraphNodeID postGenTasks(TaskGraphBuilder &builder,
 {
     auto clear_tmp = builder.addToGraph<ResetTmpAllocNode>(deps);
 
-#ifdef MADRONA_GPU_MODE
-    auto sort_dyn_agent = queueSortByWorld<DynAgent>(builder, {clear_tmp});
-    auto sort_objects = queueSortByWorld<DynamicObject>(builder, {sort_dyn_agent});
-    auto reset_finish = sort_objects;
-#else
-    auto reset_finish = clear_tmp;
-#endif
+    auto compact_dyn_agent = builder.addToGraph<CompactArchetypeNode<DynAgent>>({clear_tmp});
+    auto compact_objects = builder.addToGraph<CompactArchetypeNode<DynamicObject>>({compact_dyn_agent});
+    auto reset_finish = compact_objects;
 
 #ifdef MADRONA_GPU_MODE
     auto recycle_sys = builder.addToGraph<RecycleEntitiesNode>({reset_finish});
@@ -1313,16 +1294,12 @@ static void observationsTasks(const Config &cfg,
 
 static void setupInitTasks(TaskGraphBuilder &builder, const Config &cfg)
 {
-#ifdef MADRONA_GPU_MODE
     // Agent interfaces only need to be sorted during init
-    auto sort_agent_iface =
-        queueSortByWorld<AgentInterface>(builder, {});
-#endif
+    auto compact_agent_iface =
+        builder.addToGraph<CompactArchetypeNode<AgentInterface>>({});
 
     auto resets = resetTasks(builder, {
-#ifdef MADRONA_GPU_MODE
-        sort_agent_iface
-#endif
+        compact_agent_iface
     });
     observationsTasks(cfg, builder, {resets});
 }

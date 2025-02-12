@@ -86,6 +86,8 @@ public:
 
     madrona::py::Tensor policyAssignmentsTensor() const;
     madrona::py::Tensor episodeResultTensor() const;
+    madrona::py::Tensor simControlTensor() const;
+
     madrona::py::TrainInterface trainInterface() const;
 
 private:
