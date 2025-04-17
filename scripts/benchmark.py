@@ -13,16 +13,25 @@ num_steps = int(sys.argv[2])
 entities_per_world = int(sys.argv[3])
 reset_chance = float(sys.argv[4])
 
+render_width = 64
+render_height = 64
+
+gpu_id = 0
+
 sim = gpu_hideseek.HideAndSeekSimulator(
         exec_mode = gpu_hideseek.madrona.ExecMode.CUDA,
-        gpu_id = 0,
+        gpu_id = gpu_id,
         num_worlds = num_worlds,
-        sim_flags = gpu_hideseek.SimFlags.Default,
-        rand_seed = 10,
-        min_hiders = 3,
-        max_hiders = 3,
+        sim_flags = 0,
+        rand_seed = 0,
+        min_hiders = 2,
+        max_hiders = 2,
         min_seekers = 2,
         max_seekers = 2,
+        num_pbt_policies = 1,
+        enable_batch_renderer = True,
+        batch_render_width = render_width,
+        batch_render_height = render_height,
 )
 sim.init()
 
@@ -35,6 +44,7 @@ reset_no = torch.zeros_like(resets[:, 0], dtype=torch.int32)
 reset_yes = torch.ones_like(resets[:, 0], dtype=torch.int32)
 reset_rand = torch.zeros_like(resets[:, 0], dtype=torch.float32)
 
+rgb_observations = sim.rgb_tensor().to_torch()
 
 #def dump_obs(dump_dir, step_idx):
 #    N = rgb_observations.shape[0]

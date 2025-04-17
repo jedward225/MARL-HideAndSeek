@@ -101,16 +101,21 @@ NB_MODULE(gpu_hideseek, m) {
 #ifdef MADRONA_MWGPU_SUPPORT
                 ,
                 &Manager::gpuJAXInit,
-                &Manager::gpuJAXStep,
+                &Manager::gpuJAXStep
 #endif
-                nullptr, nullptr,
+                ,
+                nullptr,
+                nullptr
 #ifdef MADRONA_CUDA_SUPPORT
-            &Manager::gpuJAXSaveCheckpoints,
-            &Manager::gpuJAXLoadCheckpoints
+                ,
+                &Manager::gpuJAXSaveCheckpoints,
+                &Manager::gpuJAXLoadCheckpoints
 #else
-            nullptr, nullptr
+                ,
+                nullptr,
+                nullptr
 #endif
-             >())
+                >())
 
     ;
 }

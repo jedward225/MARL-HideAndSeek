@@ -22,14 +22,20 @@ sim = gpu_hideseek.HideAndSeekSimulator(
         exec_mode = gpu_hideseek.madrona.ExecMode.CPU,
         gpu_id = gpu_id,
         num_worlds = num_worlds,
-        render_width = render_width,
-        render_height = render_height,
-        debug_compile = False,
-        auto_reset = True,
+        sim_flags = 0,
+        rand_seed = 0,
+        min_hiders = 2,
+        max_hiders = 2,
+        min_seekers = 2,
+        max_seekers = 2,
+        num_pbt_policies = 1,
+        enable_batch_renderer = False,
+        batch_render_width = render_width,
+        batch_render_height = render_height,
 )
 sim.init()
 
-#rgb_observations = sim.rgb_tensor().to_torch()
+rgb_observations = sim.rgb_tensor().to_torch()
 
 def dump_rgb(dump_dir, step_idx):
     N = rgb_observations.shape[0]
